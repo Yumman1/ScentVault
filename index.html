@@ -31,25 +31,20 @@
     "xlsx": "https://esm.sh/xlsx@0.18.5"
   }
 }
-</script>
-</head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
-    <!-- SUPABASE CONNECTION (GLOBAL) -->
+<!-- SUPABASE LIBRARY -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
+<!-- SUPABASE CLIENT -->
 <script>
   const SUPABASE_URL = https://lzihycwpqwuretvlipyj.supabase.co;
   const SUPABASE_KEY = sb_publishable_dQQ-y1e0Xv3PWuosaU5GIQ_RP1FC1H7;
 
-  window.supabase = supabase.createClient(
+  window.supabaseClient = window.supabase.createClient(
     SUPABASE_URL,
     SUPABASE_KEY
   );
 
-  console.log("✅ Supabase loaded:", window.supabase);
+  console.log("✅ Supabase client ready:", window.supabaseClient);
 </script>
-
   </body>
 </html>
