@@ -9,7 +9,8 @@ import {
   ArrowUpFromLine, 
   ArrowRightLeft,
   FileText,
-  ShieldCheck
+  ShieldCheck,
+  Database
 } from 'lucide-react';
 import { useInventory } from '../context/InventoryContext';
 import { UserRole } from '../types';
@@ -33,6 +34,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
     { id: 'customers', label: 'Customers', icon: Users, category: 'System Forms' },
     { id: 'packing', label: 'Packing Types', icon: Package, category: 'System Forms' },
     { id: 'locations', label: 'Locations', icon: MapPin, category: 'System Forms' },
+    { id: 'database', label: 'Database Management', icon: Database, category: 'System Forms' },
     
     // Transactions
     { id: 'perfumes', label: 'Perfume Master', icon: FlaskConical, category: 'Transactions' },
@@ -46,14 +48,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
     if (currentUser.role === UserRole.Admin) return true;
 
     if (currentUser.role === UserRole.Operator) {
-        // Operators: Dashboard (Stock view), Gate In, Gate Out, Transfer. 
-        // Cannot access Master Forms (Suppliers, Perfumes etc) or Reports (per spec strictness, though mostly reports are read only).
-        // Prompt says: "Operator: Can do Gate in and Gate out"
         return ['dashboard', 'gate-in', 'gate-out', 'transfer'].includes(itemId);
     }
 
     if (currentUser.role === UserRole.Viewer) {
-        // Viewer: Dashboard, Reports. No forms.
         return ['dashboard', 'reports'].includes(itemId);
     }
 

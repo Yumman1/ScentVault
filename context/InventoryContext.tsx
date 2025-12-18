@@ -46,27 +46,44 @@ interface InventoryContextType {
   deleteUser: (id: string) => void;
   setCurrentUser: (u: User) => void;
 
+  // Database Management
+  exportDatabase: () => void;
+  importDatabase: (jsonData: string) => void;
+  resetDatabase: () => void;
+
   // Helpers
   getMainLocations: () => Location[];
   getSubLocations: (mainLocationId: string) => Location[];
   hasPermission: (permission: 'view_prices' | 'manage_users' | 'manage_master_data') => boolean;
 }
 
+const STORAGE_KEY = 'scentvault_db_v1';
+
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
 
 export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Initialize with some dummy data for better UX on first load
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [packingTypes, setPackingTypes] = useState<PackingType[]>([]);
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [perfumes, setPerfumes] = useState<Perfume[]>([]);
-  
-  const [gateInLogs, setGateInLogs] = useState<GateInLog[]>([]);
-  const [gateOutLogs, setGateOutLogs] = useState<GateOutLog[]>([]);
-  const [transferLogs, setTransferLogs] = useState<StockTransferLog[]>([]);
+  // Load initial data from localStorage if available
+  const loadInitial = () => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error("Failed to load data from localStorage", e);
+    }
+    return null;
+  };
 
-  // User State
+  const initial = loadInitial();
+
+  const [suppliers, setSuppliers] = useState<Supplier[]>(initial?.suppliers || []);
+  const [customers, setCustomers] = useState<Customer[]>(initial?.customers || []);
+  const [packingTypes, setPackingTypes] = useState<PackingType[]>(initial?.packingTypes || []);
+  const [locations, setLocations] = useState<Location[]>(initial?.locations || []);
+  const [perfumes, setPerfumes] = useState<Perfume[]>(initial?.perfumes || []);
+  const [gateInLogs, setGateInLogs] = useState<GateInLog[]>(initial?.gateInLogs || []);
+  const [gateOutLogs, setGateOutLogs] = useState<GateOutLog[]>(initial?.gateOutLogs || []);
+  const [transferLogs, setTransferLogs] = useState<StockTransferLog[]>(initial?.transferLogs || []);
+
   const defaultAdmin: User = { 
     id: 'admin-1', 
     name: 'Super Admin', 
@@ -74,13 +91,22 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     permissions: { canViewPrices: true, allowedLocationIds: [] } 
   };
 
-  const [users, setUsers] = useState<User[]>([
+  const [users, setUsers] = useState<User[]>(initial?.users || [
     defaultAdmin,
     { id: 'op-1', name: 'Warehouse Operator', role: UserRole.Operator, permissions: { canViewPrices: false, allowedLocationIds: [] } },
     { id: 'view-1', name: 'Restricted Viewer', role: UserRole.Viewer, permissions: { canViewPrices: false, allowedLocationIds: [] } }
   ]);
   
-  const [currentUser, setCurrentUser] = useState<User>(defaultAdmin);
+  const [currentUser, setCurrentUser] = useState<User>(initial?.currentUser || defaultAdmin);
+
+  // Auto-sync to localStorage on every change
+  useEffect(() => {
+    const dataToSave = {
+      suppliers, customers, packingTypes, locations, perfumes,
+      gateInLogs, gateOutLogs, transferLogs, users, currentUser
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+  }, [suppliers, customers, packingTypes, locations, perfumes, gateInLogs, gateOutLogs, transferLogs, users, currentUser]);
 
   const addSupplier = (s: Supplier) => setSuppliers(prev => [...prev, s]);
   const updateSupplier = (id: string, s: Supplier) => setSuppliers(prev => prev.map(item => item.id === id ? s : item));
@@ -109,7 +135,6 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const updateTransferLog = (id: string, l: StockTransferLog) => setTransferLogs(prev => prev.map(item => item.id === id ? l : item));
   const deleteTransferLog = (id: string) => setTransferLogs(prev => prev.filter(item => item.id !== id));
 
-
   const addUser = (u: User) => setUsers(prev => [...prev, u]);
   const updateUser = (id: string, u: User) => {
     setUsers(prev => prev.map(item => item.id === id ? u : item));
@@ -117,22 +142,66 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
   const deleteUser = (id: string) => setUsers(prev => prev.filter(u => u.id !== id));
 
+  // --- Database Management ---
+  const exportDatabase = () => {
+    const data = {
+        suppliers, customers, packingTypes, locations, perfumes,
+        gateInLogs, gateOutLogs, transferLogs, users, currentUser,
+        exportDate: new Date().toISOString(),
+        version: "1.0"
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `scentvault_backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const importDatabase = (jsonData: string) => {
+    try {
+        const data = JSON.parse(jsonData);
+        if (data.suppliers) setSuppliers(data.suppliers);
+        if (data.customers) setCustomers(data.customers);
+        if (data.packingTypes) setPackingTypes(data.packingTypes);
+        if (data.locations) setLocations(data.locations);
+        if (data.perfumes) setPerfumes(data.perfumes);
+        if (data.gateInLogs) setGateInLogs(data.gateInLogs);
+        if (data.gateOutLogs) setGateOutLogs(data.gateOutLogs);
+        if (data.transferLogs) setTransferLogs(data.transferLogs);
+        if (data.users) setUsers(data.users);
+        if (data.currentUser) setCurrentUser(data.currentUser);
+        alert("Database Imported Successfully!");
+    } catch (e) {
+        alert("Error importing database. Please ensure it is a valid ScentVault backup file.");
+        console.error(e);
+    }
+  };
+
+  const resetDatabase = () => {
+      setSuppliers([]);
+      setCustomers([]);
+      setPackingTypes([]);
+      setLocations([]);
+      setPerfumes([]);
+      setGateInLogs([]);
+      setGateOutLogs([]);
+      setTransferLogs([]);
+      setUsers([defaultAdmin]);
+      setCurrentUser(defaultAdmin);
+      localStorage.removeItem(STORAGE_KEY);
+  };
+
   const getMainLocations = () => locations.filter(l => l.type === 'Main Location');
   const getSubLocations = (mainId: string) => locations.filter(l => l.type === 'Sub Location' && l.parentId === mainId);
 
   const hasPermission = (permission: 'view_prices' | 'manage_users' | 'manage_master_data') => {
     if (!currentUser) return false;
     if (currentUser.role === UserRole.Admin) return true;
-
-    if (permission === 'view_prices') {
-      return !!currentUser.permissions?.canViewPrices;
-    }
-    
-    // Operators and Viewers cannot manage users or master data
-    if (permission === 'manage_users' || permission === 'manage_master_data') {
-      return false;
-    }
-    
+    if (permission === 'view_prices') return !!currentUser.permissions?.canViewPrices;
     return false;
   };
 
@@ -149,6 +218,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       addGateOutLog, updateGateOutLog, deleteGateOutLog,
       addTransferLog, updateTransferLog, deleteTransferLog,
       addUser, updateUser, deleteUser, setCurrentUser,
+      exportDatabase, importDatabase, resetDatabase,
       getMainLocations, getSubLocations, hasPermission
     }}>
       {children}
