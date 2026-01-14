@@ -1,76 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import { GateInLog, GateOutLog, StockTransferLog, GateOutUsage } from '../../types';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { Button } from '../ui/Button';
-import { Pencil, Trash2, X } from 'lucide-react';
+import { Pencil, Trash2, X, PlusCircle, History, ArrowRight, MapPin, Package, ArrowRightLeft } from 'lucide-react';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
-
-// --- HELPER: CALCULATE BATCH STOCK ---
-// Modified to optionally exclude a specific log (to support editing: we "add back" the stock from the log being edited)
-const getAvailableBatches = (
-  perfumeId: string, 
-  locationId: string, 
-  gateInLogs: any[], 
-  gateOutLogs: any[], 
-  transferLogs: any[],
-  excludeLogId?: string 
-) => {
-  if (!perfumeId || !locationId) return [];
-  
-  const batchMap: Record<string, number> = {};
-  const normalize = (s: string) => (s || '').trim();
-
-  // 1. Gate In (Inflow)
-  gateInLogs.forEach(l => {
-    if (l.id === excludeLogId) return; // Ignored for calculation if this is the log we are editing (if we were editing a Gate In, it wouldn't supply stock, but usually we exclude out-going logs to free up stock)
-    
-    if (l.perfumeId === perfumeId && l.mainLocationId === locationId) {
-      const batch = normalize(l.importReference);
-      if (batch) {
-        batchMap[batch] = (batchMap[batch] || 0) + Number(l.netWeight);
-      }
-    }
-  });
-
-  // 2. Gate Out (Outflow)
-  gateOutLogs.forEach(l => {
-    if (l.id === excludeLogId) return; // If we are editing THIS gate out, ignore it so its weight is effectively available again
-    
-    if (l.perfumeId === perfumeId && l.mainLocationId === locationId) {
-      const batch = normalize(l.batchNumber);
-      if (batch) {
-        batchMap[batch] = (batchMap[batch] || 0) - Number(l.netWeight);
-      }
-    }
-  });
-
-  // 3. Transfers (Flow)
-  transferLogs.forEach(l => {
-    if (l.id === excludeLogId) return; // Same for transfers
-
-    if (l.perfumeId === perfumeId) {
-      const batch = normalize(l.batchNumber);
-      if (batch) {
-         // Out from here
-         if (l.fromMainLocationId === locationId) {
-            batchMap[batch] = (batchMap[batch] || 0) - Number(l.netWeight);
-         }
-         // In to here
-         if (l.toMainLocationId === locationId) {
-            batchMap[batch] = (batchMap[batch] || 0) + Number(l.netWeight);
-         }
-      }
-    }
-  });
-
-  return Object.entries(batchMap)
-      .map(([batch, weight]) => ({ batch, weight }))
-      .filter(item => item.weight > 0.001) // Filter out empty/negative stock (floating point tolerance)
-      .sort((a, b) => b.weight - a.weight); // Sort largest batches first
-};
 
 // --- SHARED HOOK FOR CYCLICAL LOGIC ---
 const useCyclicalWeight = (packingTypeId: string, packingTypes: any[]) => {
@@ -78,25 +14,27 @@ const useCyclicalWeight = (packingTypeId: string, packingTypes: any[]) => {
   const [weight, setWeight] = useState<string>('');
 
   const packingType = packingTypes.find(pt => pt.id === packingTypeId);
-  const unitQty = packingType ? packingType.qtyPerPacking : 0;
+  const unitQty = packingType ? Number(packingType.qtyPerPacking) : 0;
 
-  const handleQtyChange = (val: string) => {
+  const handleQtyChange = useCallback((val: string) => {
     setQty(val);
-    if (unitQty && val) {
-      setWeight((Number(val) * unitQty).toFixed(2));
-    } else if (!val) {
+    const numVal = Number(val);
+    if (unitQty && !isNaN(numVal) && val !== '') {
+      setWeight((numVal * unitQty).toFixed(2));
+    } else if (val === '') {
       setWeight('');
     }
-  };
+  }, [unitQty]);
 
-  const handleWeightChange = (val: string) => {
+  const handleWeightChange = useCallback((val: string) => {
     setWeight(val);
-    if (unitQty && val) {
-      setQty((Number(val) / unitQty).toFixed(2)); 
-    } else if (!val) {
+    const numVal = Number(val);
+    if (unitQty && !isNaN(numVal) && val !== '') {
+      setQty((numVal / unitQty).toFixed(2));
+    } else if (val === '') {
       setQty('');
     }
-  };
+  }, [unitQty]);
 
   return { qty, weight, handleQtyChange, handleWeightChange, setQty, setWeight };
 };
@@ -104,10 +42,10 @@ const useCyclicalWeight = (packingTypeId: string, packingTypes: any[]) => {
 // --- GATE IN ---
 export const GateInForm = () => {
   const { 
-    perfumes, suppliers, packingTypes, locations, 
+    perfumes, suppliers, packingTypes, 
     getMainLocations, getSubLocations, 
     addGateInLog, updateGateInLog, deleteGateInLog, 
-    gateInLogs, hasPermission 
+    gateInLogs, hasPermission, locations
   } = useInventory();
   
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -124,13 +62,11 @@ export const GateInForm = () => {
 
   const { qty, weight, handleQtyChange, handleWeightChange, setQty, setWeight } = useCyclicalWeight(selectedPackingTypeId, packingTypes);
 
-  // Derived Values
   const selectedPerfume = perfumes.find(p => p.id === selectedPerfumeId);
   const supplier = selectedPerfume ? suppliers.find(s => s.id === selectedPerfume.supplierId) : null;
-  const subLocations = mainLocId ? getSubLocations(mainLocId) : [];
+  const subLocations = useMemo(() => mainLocId ? getSubLocations(mainLocId) : [], [mainLocId, getSubLocations]);
   const canViewPrices = hasPermission('view_prices');
 
-  // Auto-populate prices when perfume changes, ONLY if not editing (to preserve historical data)
   useEffect(() => {
     if (selectedPerfume && !editingId) {
         setPriceUSD(selectedPerfume.priceUSD?.toString() || '');
@@ -138,34 +74,8 @@ export const GateInForm = () => {
     }
   }, [selectedPerfume, editingId]);
 
-  const handlePackingTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const newId = e.target.value;
-      setSelectedPackingTypeId(newId);
-      const pt = packingTypes.find(p => p.id === newId);
-      const unit = pt?.qtyPerPacking || 0;
-      
-      if (qty && unit) {
-          setWeight((Number(qty) * unit).toFixed(2));
-      }
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Check if batch exists (exclude current if editing)
-    const batchExists = gateInLogs.some(log => 
-      log.id !== editingId &&
-      log.perfumeId === selectedPerfumeId &&
-      log.mainLocationId === mainLocId &&
-      log.importReference.trim().toLowerCase() === importRef.trim().toLowerCase()
-    );
-
-    if (batchExists) {
-        const confirm = window.confirm(
-            `Batch '${importRef}' already exists for this perfume at this location.\n\nDo you want to add to the existing batch stock?`
-        );
-        if (!confirm) return;
-    }
 
     const logData: GateInLog = {
       id: editingId || generateId(),
@@ -178,7 +88,7 @@ export const GateInForm = () => {
 
     if (editingId) {
         updateGateInLog(editingId, logData);
-        alert('Gate In Entry Updated');
+        alert('Entry Updated');
         handleCancel();
     } else {
         addGateInLog(logData);
@@ -201,19 +111,10 @@ export const GateInForm = () => {
       setRemarks(log.remarks);
       setPriceUSD(log.priceUSD?.toString() || '');
       setPricePKR(log.pricePKR?.toString() || '');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleDelete = (id: string) => {
-      if(window.confirm("Are you sure you want to delete this Gate In entry? Stock will be removed.")) {
-          deleteGateInLog(id);
-          if (editingId === id) handleCancel();
-      }
   };
 
   const handleCancel = () => {
       setEditingId(null);
-      setDate(new Date().toISOString().split('T')[0]);
       setSelectedPerfumeId('');
       setImportRef('');
       setSelectedPackingTypeId('');
@@ -228,134 +129,128 @@ export const GateInForm = () => {
   };
 
   return (
-    <div className="space-y-8">
-        <form onSubmit={handleSubmit} className="p-6 bg-white rounded-lg shadow-sm border border-gray-200">
-        <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-bold text-green-700">{editingId ? 'Edit Gate In Entry' : 'Gate In Log (Receiving)'}</h3>
-            {editingId && <Button type="button" variant="secondary" onClick={handleCancel} className="text-xs flex items-center gap-1"><X size={14}/> Cancel Edit</Button>}
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Input label="Date" type="date" value={date} onChange={e => setDate(e.target.value)} required />
-            <Select 
-            label="Perfume Name"
-            options={perfumes.map(p => ({ value: p.id, label: p.name }))}
-            value={selectedPerfumeId}
-            onChange={e => setSelectedPerfumeId(e.target.value)}
-            required
-            />
-            <Input label="Perfume Code" value={selectedPerfume?.code || ''} readOnly className="bg-gray-100" />
-            <Input label="Supplier" value={supplier?.name || ''} readOnly className="bg-gray-100" />
-            <Input 
-            label="Batch / Lot # (Import Ref)" 
-            value={importRef} 
-            onChange={e => setImportRef(e.target.value)} 
-            placeholder="Enter new batch number"
-            required 
-            />
-            <Select 
-            label="Packing Type"
-            options={packingTypes.map(pt => ({ value: pt.id, label: pt.name }))}
-            value={selectedPackingTypeId}
-            onChange={handlePackingTypeChange}
-            required
-            />
-            <Input label="Packing Qty" type="number" value={qty} onChange={e => handleQtyChange(e.target.value)} required />
-            <Input label="Net Weight (KG)" type="number" value={weight} onChange={e => handleWeightChange(e.target.value)} required />
-            
-            <Select 
-            label="Main Location"
-            options={getMainLocations().map(l => ({ value: l.id, label: l.name }))}
-            value={mainLocId}
-            onChange={e => { setMainLocId(e.target.value); setSubLocId(''); }}
-            required
-            />
-            <Select 
-            label="Sub Location"
-            options={subLocations.map(l => ({ value: l.id, label: l.name }))}
-            value={subLocId}
-            onChange={e => setSubLocId(e.target.value)}
-            disabled={!mainLocId}
-            />
-            <Input label="Supplier Invoice #" value={invoice} onChange={e => setInvoice(e.target.value)} />
-            
-            {canViewPrices && (
-                <>
-                    <Input 
-                        label="Unit Price (USD)" 
-                        type="number" 
-                        step="0.01" 
-                        value={priceUSD} 
-                        onChange={e => setPriceUSD(e.target.value)} 
-                    />
-                    <Input 
-                        label="Unit Price (PKR)" 
-                        type="number" 
-                        step="0.01" 
-                        value={pricePKR} 
-                        onChange={e => setPricePKR(e.target.value)} 
-                    />
-                </>
-            )}
-        </div>
-        <div className="mt-4">
-            <Input label="Remarks" value={remarks} onChange={e => setRemarks(e.target.value)} />
-        </div>
-        <div className="mt-4 flex justify-end">
-            <Button type="submit" className="bg-green-600 hover:bg-green-700">{editingId ? 'Update Entry' : 'Save Gate In'}</Button>
-        </div>
-        </form>
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+        <div className="xl:col-span-1">
+            <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl shadow-soft border border-slate-200 sticky top-24">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        {editingId ? <Pencil size={18} className="text-primary-500" /> : <PlusCircle size={18} className="text-success" />}
+                        {editingId ? 'Edit Entry' : 'Log Gate In'}
+                    </h3>
+                    {editingId && <button type="button" onClick={handleCancel} className="text-xs font-semibold text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>}
+                </div>
 
-        {/* List of recent transactions */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-            <h3 className="px-6 py-4 border-b border-gray-100 font-medium text-gray-700 bg-gray-50">Recent Gate In Entries</h3>
-            <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left text-gray-700">
-                    <thead className="text-xs text-gray-500 uppercase bg-gray-50 border-b">
-                        <tr>
-                            <th className="px-6 py-3">Date</th>
-                            <th className="px-6 py-3">Perfume</th>
-                            <th className="px-6 py-3">Batch</th>
-                            <th className="px-6 py-3 text-right">Weight</th>
-                            <th className="px-6 py-3">Location</th>
-                            <th className="px-6 py-3 text-right">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                        {gateInLogs.slice().reverse().slice(0, 10).map(log => {
-                            const p = perfumes.find(x => x.id === log.perfumeId);
-                            const loc = locations.find(x => x.id === log.mainLocationId);
-                            return (
-                                <tr key={log.id} className="hover:bg-gray-50">
-                                    <td className="px-6 py-3">{log.date}</td>
-                                    <td className="px-6 py-3 font-medium">{p?.name}</td>
-                                    <td className="px-6 py-3 font-mono text-xs">{log.importReference}</td>
-                                    <td className="px-6 py-3 text-right">{log.netWeight.toFixed(2)}</td>
-                                    <td className="px-6 py-3 text-xs">{loc?.name}</td>
-                                    <td className="px-6 py-3 text-right">
-                                        <div className="flex justify-end gap-2">
-                                            <button onClick={() => handleEdit(log)} className="text-indigo-600 hover:text-indigo-900"><Pencil size={14}/></button>
-                                            <button onClick={() => handleDelete(log.id)} className="text-red-600 hover:text-red-900"><Trash2 size={14}/></button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            )
-                        })}
-                        {gateInLogs.length === 0 && <tr><td colSpan={6} className="px-6 py-4 text-center text-gray-400">No entries yet.</td></tr>}
-                    </tbody>
-                </table>
+                <div className="space-y-1">
+                    <Input label="Date" type="date" value={date} onChange={e => setDate(e.target.value)} required />
+                    <Select 
+                        label="Perfume"
+                        options={perfumes.map(p => ({ value: p.id, label: `${p.code} - ${p.name}` }))}
+                        value={selectedPerfumeId}
+                        onChange={e => setSelectedPerfumeId(e.target.value)}
+                        required
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                        <Input label="Batch #" value={importRef} onChange={e => setImportRef(e.target.value)} required />
+                        <Select 
+                            label="Packing"
+                            options={packingTypes.map(pt => ({ value: pt.id, label: pt.name }))}
+                            value={selectedPackingTypeId}
+                            onChange={e => setSelectedPackingTypeId(e.target.value)}
+                            required
+                        />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <Input label="Packing Qty" type="number" value={qty} onChange={e => handleQtyChange(e.target.value)} required />
+                        <Input label="Net Weight (KG)" type="number" step="0.01" value={weight} onChange={e => handleWeightChange(e.target.value)} required />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <Select 
+                            label="Main Location"
+                            options={getMainLocations().map(l => ({ value: l.id, label: l.name }))}
+                            value={mainLocId}
+                            onChange={e => { setMainLocId(e.target.value); setSubLocId(''); }}
+                            required
+                        />
+                        <Select 
+                            label="Sub Location"
+                            options={subLocations.map(l => ({ value: l.id, label: l.name }))}
+                            value={subLocId}
+                            onChange={e => setSubLocId(e.target.value)}
+                            disabled={!mainLocId}
+                        />
+                    </div>
+                    <Input label="Supplier Invoice #" value={invoice} onChange={e => setInvoice(e.target.value)} />
+                    {canViewPrices && (
+                        <div className="grid grid-cols-2 gap-3">
+                            <Input label="Price (USD)" type="number" step="0.01" value={priceUSD} onChange={e => setPriceUSD(e.target.value)} />
+                            <Input label="Price (PKR)" type="number" step="0.01" value={pricePKR} onChange={e => setPricePKR(e.target.value)} />
+                        </div>
+                    )}
+                    <Input label="Remarks" value={remarks} onChange={e => setRemarks(e.target.value)} />
+                </div>
+
+                <Button type="submit" className="w-full mt-4 py-3 shadow-lg shadow-primary-500/20">{editingId ? 'Update Record' : 'Log Movement'}</Button>
+            </form>
+        </div>
+
+        <div className="xl:col-span-2">
+            <div className="bg-white rounded-2xl shadow-soft border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                    <h3 className="font-bold text-slate-700 flex items-center gap-2"><History size={16} /> Recent Movements</h3>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Live Log</span>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                        <thead className="text-[11px] text-slate-400 uppercase tracking-wider bg-slate-50 border-b border-slate-100">
+                            <tr>
+                                <th className="px-6 py-4">Date</th>
+                                <th className="px-6 py-4">Item Details</th>
+                                <th className="px-6 py-4">Batch</th>
+                                <th className="px-6 py-4 text-right">Net Weight</th>
+                                <th className="px-6 py-4">Location</th>
+                                <th className="px-6 py-4 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {gateInLogs.slice().reverse().slice(0, 15).map(log => {
+                                const p = perfumes.find(x => x.id === log.perfumeId);
+                                const loc = locations.find(x => x.id === log.mainLocationId);
+                                return (
+                                    <tr key={log.id} className="hover:bg-slate-50/80 transition-colors group">
+                                        <td className="px-6 py-4 text-slate-500 font-mono text-xs">{log.date}</td>
+                                        <td className="px-6 py-4">
+                                            <div className="font-semibold text-slate-800">{p?.name}</div>
+                                            <div className="text-[10px] text-slate-400 font-mono">{p?.code}</div>
+                                        </td>
+                                        <td className="px-6 py-4"><span className="bg-indigo-50 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-indigo-100">{log.importReference}</span></td>
+                                        <td className="px-6 py-4 text-right font-mono font-bold text-success">{log.netWeight.toFixed(2)} kg</td>
+                                        <td className="px-6 py-4 text-xs text-slate-500">{loc?.name}</td>
+                                        <td className="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="flex justify-end gap-2">
+                                                <button onClick={() => handleEdit(log)} className="p-1.5 text-slate-400 hover:text-primary-500 transition-colors"><Pencil size={14}/></button>
+                                                <button onClick={() => deleteGateInLog(log.id)} className="p-1.5 text-slate-400 hover:text-accent transition-colors"><Trash2 size={14}/></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                )
+                            })}
+                            {gateInLogs.length === 0 && <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-400 italic">No movements recorded yet.</td></tr>}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
   );
 };
 
-// --- GATE OUT ---
+// --- GATE OUT (ISSUING) ---
 export const GateOutForm = () => {
   const { 
-    perfumes, suppliers, packingTypes, customers, locations,
+    perfumes, packingTypes, customers, locations,
     getMainLocations, getSubLocations, 
     addGateOutLog, updateGateOutLog, deleteGateOutLog,
-    gateInLogs, gateOutLogs, transferLogs 
+    gateOutLogs, getBatchStock 
   } = useInventory();
   
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -371,68 +266,9 @@ export const GateOutForm = () => {
 
   const { qty, weight, handleQtyChange, handleWeightChange, setQty, setWeight } = useCyclicalWeight(selectedPackingTypeId, packingTypes);
 
-  const selectedPerfume = perfumes.find(p => p.id === selectedPerfumeId);
-  const subLocations = mainLocId ? getSubLocations(mainLocId) : [];
-
-  // Calculate available batches for the selected perfume at the selected location
   const availableBatches = useMemo(() => {
-    // If editing, exclude the current log so we can 're-select' the stock we previously consumed
-    return getAvailableBatches(selectedPerfumeId, mainLocId, gateInLogs, gateOutLogs, transferLogs, editingId || undefined);
-  }, [selectedPerfumeId, mainLocId, gateInLogs, gateOutLogs, transferLogs, editingId]);
-
-  // Derive available Packing Types based on active batches in inventory
-  const availablePackingTypes = useMemo(() => {
-    if (!availableBatches.length) return [];
-    const typeIds = new Set<string>();
-    const batchNames = new Set(availableBatches.map(b => b.batch));
-
-    gateInLogs.forEach(l => {
-        if (l.perfumeId === selectedPerfumeId && l.mainLocationId === mainLocId && batchNames.has(l.importReference)) {
-            typeIds.add(l.packingTypeId);
-        }
-    });
-
-    transferLogs.forEach(l => {
-        if (l.perfumeId === selectedPerfumeId && l.toMainLocationId === mainLocId && batchNames.has(l.batchNumber)) {
-            typeIds.add(l.packingTypeId);
-        }
-    });
-
-    const filtered = packingTypes.filter(pt => typeIds.has(pt.id));
-    return filtered.length > 0 ? filtered : packingTypes;
-  }, [availableBatches, gateInLogs, transferLogs, packingTypes, selectedPerfumeId, mainLocId]);
-
-
-  // Auto-populate when Batch is selected
-  useEffect(() => {
-    // Only auto-populate if NOT editing, or if editing but changing batch manually
-    // Actually, improved UX: Only populate if weight is empty to avoid overwriting user edits
-    if (!editingId || (editingId && weight === '')) {
-        const batch = availableBatches.find(b => b.batch === batchNumber);
-        if (batch) {
-            setWeight(batch.weight.toFixed(2));
-            const pt = packingTypes.find(p => p.id === selectedPackingTypeId);
-            if (pt && pt.qtyPerPacking) {
-                setQty((batch.weight / pt.qtyPerPacking).toFixed(2));
-            }
-        }
-    }
-  }, [batchNumber, editingId]); 
-
-  const handlePackingTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newId = e.target.value;
-    setSelectedPackingTypeId(newId);
-    const pt = packingTypes.find(p => p.id === newId);
-    const unit = pt?.qtyPerPacking || 0;
-    
-    if (unit > 0) {
-        if (weight) {
-           setQty((Number(weight) / unit).toFixed(2));
-        } else if (qty) {
-           setWeight((Number(qty) * unit).toFixed(2));
-        }
-    }
-  };
+    return getBatchStock(selectedPerfumeId, mainLocId, editingId || undefined);
+  }, [selectedPerfumeId, mainLocId, editingId, getBatchStock]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -446,7 +282,7 @@ export const GateOutForm = () => {
 
     if (editingId) {
         updateGateOutLog(editingId, logData);
-        alert('Gate Out Entry Updated');
+        alert('Entry Updated');
         handleCancel();
     } else {
         addGateOutLog(logData);
@@ -460,8 +296,6 @@ export const GateOutForm = () => {
       setDate(log.date);
       setSelectedPerfumeId(log.perfumeId);
       setMainLocId(log.mainLocationId);
-      // Important: Set batch AFTER perfume/loc so dependencies work, but React state batching might require care.
-      // We set them all; the useEffect dependencies will re-run but we are setting values.
       setBatchNumber(log.batchNumber);
       setSelectedPackingTypeId(log.packingTypeId);
       setQty(log.packingQty.toString());
@@ -470,19 +304,10 @@ export const GateOutForm = () => {
       setUsage(log.usage);
       setCustomerId(log.customerId || '');
       setRemarks(log.remarks);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleDelete = (id: string) => {
-    if(window.confirm("Are you sure you want to delete this Gate Out entry? Stock will be returned.")) {
-        deleteGateOutLog(id);
-        if (editingId === id) handleCancel();
-    }
   };
 
   const handleCancel = () => {
     setEditingId(null);
-    setDate(new Date().toISOString().split('T')[0]);
     setSelectedPerfumeId('');
     setBatchNumber('');
     setSelectedPackingTypeId('');
@@ -496,126 +321,113 @@ export const GateOutForm = () => {
   };
 
   return (
-    <div className="space-y-8">
-        <form onSubmit={handleSubmit} className="p-6 bg-white rounded-lg shadow-sm border border-gray-200">
-        <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-bold text-red-700">{editingId ? 'Edit Gate Out Entry' : 'Gate Out Log (Issuing)'}</h3>
-            {editingId && <Button type="button" variant="secondary" onClick={handleCancel} className="text-xs flex items-center gap-1"><X size={14}/> Cancel Edit</Button>}
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Input label="Date" type="date" value={date} onChange={e => setDate(e.target.value)} required />
-            <Select 
-            label="Perfume Name"
-            options={perfumes.map(p => ({ value: p.id, label: p.name }))}
-            value={selectedPerfumeId}
-            onChange={e => setSelectedPerfumeId(e.target.value)}
-            required
-            />
-            <Input label="Perfume Code" value={selectedPerfume?.code || ''} readOnly className="bg-gray-100" />
-            
-            <Select 
-            label="From Main Location"
-            options={getMainLocations().map(l => ({ value: l.id, label: l.name }))}
-            value={mainLocId}
-            onChange={e => { setMainLocId(e.target.value); setSubLocId(''); setBatchNumber(''); }}
-            required
-            />
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+        <div className="xl:col-span-1">
+            <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl shadow-soft border border-slate-200 sticky top-24">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        {editingId ? <Pencil size={18} className="text-primary-500" /> : <PlusCircle size={18} className="text-accent" />}
+                        {editingId ? 'Edit Issue' : 'Log Gate Out'}
+                    </h3>
+                    {editingId && <button type="button" onClick={handleCancel} className="text-xs font-semibold text-slate-400 hover:text-slate-600">Cancel</button>}
+                </div>
 
-            <Select 
-            label="Batch / Lot #"
-            options={availableBatches.map(b => ({ 
-                value: b.batch, 
-                label: `${b.batch} — ${b.weight.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} kg Available` 
-            }))}
-            value={batchNumber}
-            onChange={e => setBatchNumber(e.target.value)}
-            disabled={!mainLocId || !selectedPerfumeId}
-            required
-            />
+                <div className="space-y-1">
+                    <Input label="Date" type="date" value={date} onChange={e => setDate(e.target.value)} required />
+                    <Select 
+                        label="Perfume"
+                        options={perfumes.map(p => ({ value: p.id, label: p.name }))}
+                        value={selectedPerfumeId}
+                        onChange={e => { setSelectedPerfumeId(e.target.value); setBatchNumber(''); }}
+                        required
+                    />
+                    <Select 
+                        label="From Location"
+                        options={getMainLocations().map(l => ({ value: l.id, label: l.name }))}
+                        value={mainLocId}
+                        onChange={e => { setMainLocId(e.target.value); setBatchNumber(''); }}
+                        required
+                    />
+                    <Select 
+                        label="Available Batch"
+                        options={availableBatches.map(b => ({ value: b.batch, label: `${b.batch} (${b.weight.toFixed(2)} kg available)` }))}
+                        value={batchNumber}
+                        onChange={e => {
+                            setBatchNumber(e.target.value);
+                            const b = availableBatches.find(x => x.batch === e.target.value);
+                            if (b) {
+                                setWeight(b.weight.toFixed(2));
+                                const pt = packingTypes.find(x => x.id === selectedPackingTypeId);
+                                if (pt?.qtyPerPacking) setQty((b.weight / pt.qtyPerPacking).toFixed(2));
+                            }
+                        }}
+                        required
+                        disabled={!selectedPerfumeId || !mainLocId}
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                        <Select 
+                            label="Packing"
+                            options={packingTypes.map(pt => ({ value: pt.id, label: pt.name }))}
+                            value={selectedPackingTypeId}
+                            onChange={e => setSelectedPackingTypeId(e.target.value)}
+                            required
+                        />
+                         <Input label="Net Weight (KG)" type="number" step="0.01" value={weight} onChange={e => handleWeightChange(e.target.value)} required />
+                    </div>
+                    <Input label="Packing Qty" type="number" value={qty} onChange={e => handleQtyChange(e.target.value)} required />
+                    
+                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                        <Select label="Usage" options={Object.values(GateOutUsage).map(u => ({ value: u, label: u }))} value={usage} onChange={e => setUsage(e.target.value as GateOutUsage)} />
+                        {usage === GateOutUsage.Sale && (
+                            <Select label="Customer" options={customers.map(c => ({ value: c.id, label: c.name }))} value={customerId} onChange={e => setCustomerId(e.target.value)} required />
+                        )}
+                    </div>
+                </div>
 
-            <Select 
-            label="Packing Type"
-            options={availablePackingTypes.map(pt => ({ value: pt.id, label: pt.name }))}
-            value={selectedPackingTypeId}
-            onChange={handlePackingTypeChange}
-            required
-            />
-            <Input label="Packing Qty" type="number" value={qty} onChange={e => handleQtyChange(e.target.value)} required />
-            <Input label="Net Weight (KG)" type="number" value={weight} onChange={e => handleWeightChange(e.target.value)} required />
-            
-            <Select 
-            label="From Sub Location"
-            options={subLocations.map(l => ({ value: l.id, label: l.name }))}
-            value={subLocId}
-            onChange={e => setSubLocId(e.target.value)}
-            disabled={!mainLocId}
-            />
+                <Button type="submit" variant="primary" className="w-full mt-6 bg-accent hover:bg-rose-600 shadow-rose-500/20">{editingId ? 'Update Issue' : 'Issue Stock'}</Button>
+            </form>
+        </div>
 
-            <Select 
-            label="Usage"
-            options={Object.values(GateOutUsage).map(u => ({ value: u, label: u }))}
-            value={usage}
-            onChange={e => setUsage(e.target.value as GateOutUsage)}
-            />
-            {usage === GateOutUsage.Sale && (
-            <Select 
-                label="Customer"
-                options={customers.map(c => ({ value: c.id, label: c.name }))}
-                value={customerId}
-                onChange={e => setCustomerId(e.target.value)}
-                required
-            />
-            )}
-        </div>
-        <div className="mt-4">
-            <Input label="Remarks" value={remarks} onChange={e => setRemarks(e.target.value)} />
-        </div>
-        <div className="mt-4 flex justify-end">
-            <Button type="submit" className="bg-red-600 hover:bg-red-700">{editingId ? 'Update Entry' : 'Save Gate Out'}</Button>
-        </div>
-        </form>
-
-        {/* List of recent transactions */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-            <h3 className="px-6 py-4 border-b border-gray-100 font-medium text-gray-700 bg-gray-50">Recent Gate Out Entries</h3>
-            <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left text-gray-700">
-                    <thead className="text-xs text-gray-500 uppercase bg-gray-50 border-b">
-                        <tr>
-                            <th className="px-6 py-3">Date</th>
-                            <th className="px-6 py-3">Perfume</th>
-                            <th className="px-6 py-3">Batch</th>
-                            <th className="px-6 py-3 text-right">Weight</th>
-                            <th className="px-6 py-3">Usage</th>
-                            <th className="px-6 py-3 text-right">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                        {gateOutLogs.slice().reverse().slice(0, 10).map(log => {
-                            const p = perfumes.find(x => x.id === log.perfumeId);
-                            const cust = customers.find(c => c.id === log.customerId);
-                            return (
-                                <tr key={log.id} className="hover:bg-gray-50">
-                                    <td className="px-6 py-3">{log.date}</td>
-                                    <td className="px-6 py-3 font-medium">{p?.name}</td>
-                                    <td className="px-6 py-3 font-mono text-xs">{log.batchNumber}</td>
-                                    <td className="px-6 py-3 text-right">{log.netWeight.toFixed(2)}</td>
-                                    <td className="px-6 py-3 text-xs">
-                                        {log.usage}
-                                        {log.usage === GateOutUsage.Sale && cust ? ` (${cust.name})` : ''}
-                                    </td>
-                                    <td className="px-6 py-3 text-right">
-                                        <div className="flex justify-end gap-2">
-                                            <button onClick={() => handleEdit(log)} className="text-indigo-600 hover:text-indigo-900"><Pencil size={14}/></button>
-                                            <button onClick={() => handleDelete(log.id)} className="text-red-600 hover:text-red-900"><Trash2 size={14}/></button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            )
-                        })}
-                        {gateOutLogs.length === 0 && <tr><td colSpan={6} className="px-6 py-4 text-center text-gray-400">No entries yet.</td></tr>}
-                    </tbody>
-                </table>
+        <div className="xl:col-span-2">
+            <div className="bg-white rounded-2xl shadow-soft border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                    <h3 className="font-bold text-slate-700">Outbound History</h3>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                        <thead className="text-[11px] text-slate-400 uppercase bg-slate-50 border-b border-slate-100">
+                            <tr>
+                                <th className="px-6 py-4">Date</th>
+                                <th className="px-6 py-4">Item</th>
+                                <th className="px-6 py-4">Batch</th>
+                                <th className="px-6 py-4 text-right">Net Weight</th>
+                                <th className="px-6 py-4">Destination</th>
+                                <th className="px-6 py-4 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {gateOutLogs.slice().reverse().slice(0, 15).map(log => {
+                                const p = perfumes.find(x => x.id === log.perfumeId);
+                                const cust = customers.find(c => c.id === log.customerId);
+                                return (
+                                    <tr key={log.id} className="hover:bg-slate-50 transition-colors group">
+                                        <td className="px-6 py-4 text-slate-500 font-mono text-xs">{log.date}</td>
+                                        <td className="px-6 py-4 font-semibold text-slate-800">{p?.name}</td>
+                                        <td className="px-6 py-4 font-mono text-xs">{log.batchNumber}</td>
+                                        <td className="px-6 py-4 text-right font-bold text-accent">{log.netWeight.toFixed(2)} kg</td>
+                                        <td className="px-6 py-4 text-xs font-medium text-slate-500">{log.usage === 'Sale' ? cust?.name : log.usage}</td>
+                                        <td className="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="flex justify-end gap-2">
+                                                <button onClick={() => handleEdit(log)} className="p-1.5 text-slate-400 hover:text-primary-500"><Pencil size={14}/></button>
+                                                <button onClick={() => deleteGateOutLog(log.id)} className="p-1.5 text-slate-400 hover:text-accent"><Trash2 size={14}/></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                )
+                            })}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -625,10 +437,10 @@ export const GateOutForm = () => {
 // --- STOCK TRANSFER ---
 export const StockTransferForm = () => {
   const { 
-    perfumes, suppliers, packingTypes, locations,
+    perfumes, packingTypes, locations,
     getMainLocations, getSubLocations, 
     addTransferLog, updateTransferLog, deleteTransferLog,
-    gateInLogs, gateOutLogs, transferLogs 
+    transferLogs, getBatchStock 
   } = useInventory();
   
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -636,78 +448,31 @@ export const StockTransferForm = () => {
   const [selectedPerfumeId, setSelectedPerfumeId] = useState('');
   const [batchNumber, setBatchNumber] = useState('');
   const [selectedPackingTypeId, setSelectedPackingTypeId] = useState('');
+  
   const [fromMainLocId, setFromMainLocId] = useState('');
   const [fromSubLocId, setFromSubLocId] = useState('');
   const [toMainLocId, setToMainLocId] = useState('');
   const [toSubLocId, setToSubLocId] = useState('');
+  
   const [remarks, setRemarks] = useState('');
 
   const { qty, weight, handleQtyChange, handleWeightChange, setQty, setWeight } = useCyclicalWeight(selectedPackingTypeId, packingTypes);
 
-  const selectedPerfume = perfumes.find(p => p.id === selectedPerfumeId);
-  const fromSubLocations = fromMainLocId ? getSubLocations(fromMainLocId) : [];
-  const toSubLocations = toMainLocId ? getSubLocations(toMainLocId) : [];
-
-  // Calculate available batches for the selected perfume at the FROM location
   const availableBatches = useMemo(() => {
-    return getAvailableBatches(selectedPerfumeId, fromMainLocId, gateInLogs, gateOutLogs, transferLogs, editingId || undefined);
-  }, [selectedPerfumeId, fromMainLocId, gateInLogs, gateOutLogs, transferLogs, editingId]);
+    return getBatchStock(selectedPerfumeId, fromMainLocId, editingId || undefined);
+  }, [selectedPerfumeId, fromMainLocId, editingId, getBatchStock]);
 
-   // Derive available Packing Types based on active batches in inventory at FROM location
-   const availablePackingTypes = useMemo(() => {
-    if (!availableBatches.length) return [];
-    
-    const typeIds = new Set<string>();
-    const batchNames = new Set(availableBatches.map(b => b.batch));
-
-    gateInLogs.forEach(l => {
-        if (l.perfumeId === selectedPerfumeId && l.mainLocationId === fromMainLocId && batchNames.has(l.importReference)) {
-            typeIds.add(l.packingTypeId);
-        }
-    });
-
-    transferLogs.forEach(l => {
-        if (l.perfumeId === selectedPerfumeId && l.toMainLocationId === fromMainLocId && batchNames.has(l.batchNumber)) {
-            typeIds.add(l.packingTypeId);
-        }
-    });
-
-    const filtered = packingTypes.filter(pt => typeIds.has(pt.id));
-    return filtered.length > 0 ? filtered : packingTypes;
-  }, [availableBatches, gateInLogs, transferLogs, packingTypes, selectedPerfumeId, fromMainLocId]);
-
-
-  // Auto-populate when Batch is selected
-  useEffect(() => {
-    if (!editingId || (editingId && weight === '')) {
-        const batch = availableBatches.find(b => b.batch === batchNumber);
-        if (batch) {
-            setWeight(batch.weight.toFixed(2));
-            const pt = packingTypes.find(p => p.id === selectedPackingTypeId);
-            if (pt && pt.qtyPerPacking) {
-                setQty((batch.weight / pt.qtyPerPacking).toFixed(2));
-            }
-        }
-    }
-  }, [batchNumber, editingId]);
-
-  const handlePackingTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newId = e.target.value;
-    setSelectedPackingTypeId(newId);
-    const pt = packingTypes.find(p => p.id === newId);
-    const unit = pt?.qtyPerPacking || 0;
-    
-    if (unit > 0) {
-        if (weight) {
-           setQty((Number(weight) / unit).toFixed(2));
-        } else if (qty) {
-           setWeight((Number(qty) * unit).toFixed(2));
-        }
-    }
-  };
+  const fromSubLocations = useMemo(() => fromMainLocId ? getSubLocations(fromMainLocId) : [], [fromMainLocId, getSubLocations]);
+  const toSubLocations = useMemo(() => toMainLocId ? getSubLocations(toMainLocId) : [], [toMainLocId, getSubLocations]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (fromMainLocId === toMainLocId && fromSubLocId === toSubLocId) {
+        alert("Error: Origin and Destination must be different.");
+        return;
+    }
+
     const logData: StockTransferLog = {
       id: editingId || generateId(),
       date, perfumeId: selectedPerfumeId, packingTypeId: selectedPackingTypeId, 
@@ -723,37 +488,28 @@ export const StockTransferForm = () => {
         handleCancel();
     } else {
         addTransferLog(logData);
-        alert('Stock Transferred');
-        setQty(''); setWeight(''); setBatchNumber('');
+        alert('Stock Transferred Successfully');
+        setQty(''); setWeight(''); setBatchNumber(''); setRemarks('');
     }
   };
 
   const handleEdit = (log: StockTransferLog) => {
-    setEditingId(log.id);
-    setDate(log.date);
-    setSelectedPerfumeId(log.perfumeId);
-    setFromMainLocId(log.fromMainLocationId);
-    setBatchNumber(log.batchNumber);
-    setSelectedPackingTypeId(log.packingTypeId);
-    setQty(log.packingQty.toString());
-    setWeight(log.netWeight.toString());
-    setFromSubLocId(log.fromSubLocationId || '');
-    setToMainLocId(log.toMainLocationId);
-    setToSubLocId(log.toSubLocationId || '');
-    setRemarks(log.remarks);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleDelete = (id: string) => {
-    if(window.confirm("Are you sure you want to delete this Transfer?")) {
-        deleteTransferLog(id);
-        if (editingId === id) handleCancel();
-    }
+      setEditingId(log.id);
+      setDate(log.date);
+      setSelectedPerfumeId(log.perfumeId);
+      setFromMainLocId(log.fromMainLocationId);
+      setFromSubLocId(log.fromSubLocationId || '');
+      setToMainLocId(log.toMainLocationId);
+      setToSubLocId(log.toSubLocationId || '');
+      setBatchNumber(log.batchNumber);
+      setSelectedPackingTypeId(log.packingTypeId);
+      setQty(log.packingQty.toString());
+      setWeight(log.netWeight.toString());
+      setRemarks(log.remarks);
   };
 
   const handleCancel = () => {
     setEditingId(null);
-    setDate(new Date().toISOString().split('T')[0]);
     setSelectedPerfumeId('');
     setBatchNumber('');
     setSelectedPackingTypeId('');
@@ -766,133 +522,157 @@ export const StockTransferForm = () => {
     setRemarks('');
   };
 
+  const getLocName = (id?: string) => locations.find(l => l.id === id)?.name || '-';
+
   return (
-    <div className="space-y-8">
-        <form onSubmit={handleSubmit} className="p-6 bg-white rounded-lg shadow-sm border border-gray-200">
-        <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-bold text-blue-700">{editingId ? 'Edit Stock Transfer' : 'Stock Transfer Log'}</h3>
-            {editingId && <Button type="button" variant="secondary" onClick={handleCancel} className="text-xs flex items-center gap-1"><X size={14}/> Cancel Edit</Button>}
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Input label="Date" type="date" value={date} onChange={e => setDate(e.target.value)} required />
-            <Select 
-            label="Perfume Name"
-            options={perfumes.map(p => ({ value: p.id, label: p.name }))}
-            value={selectedPerfumeId}
-            onChange={e => setSelectedPerfumeId(e.target.value)}
-            required
-            />
-            <Input label="Perfume Code" value={selectedPerfume?.code || ''} readOnly className="bg-gray-100" />
-            
-            {/* FROM */}
-            <div className="col-span-1 md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4">
-                <h4 className="md:col-span-2 font-medium text-gray-500">From</h4>
-                <Select 
-                label="Main Location"
-                options={getMainLocations().map(l => ({ value: l.id, label: l.name }))}
-                value={fromMainLocId}
-                onChange={e => { setFromMainLocId(e.target.value); setFromSubLocId(''); setBatchNumber(''); }}
-                required
-                />
-                <Select 
-                label="Batch / Lot #"
-                options={availableBatches.map(b => ({ 
-                value: b.batch, 
-                label: `${b.batch} — ${b.weight.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} kg Available` 
-                }))}
-                value={batchNumber}
-                onChange={e => setBatchNumber(e.target.value)}
-                disabled={!fromMainLocId || !selectedPerfumeId}
-                required
-                />
-                <Select 
-                label="Sub Location"
-                options={fromSubLocations.map(l => ({ value: l.id, label: l.name }))}
-                value={fromSubLocId}
-                onChange={e => setFromSubLocId(e.target.value)}
-                disabled={!fromMainLocId}
-                />
-            </div>
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+        <div className="xl:col-span-1">
+            <form onSubmit={handleSubmit} className="bg-white p-8 rounded-[2.5rem] shadow-soft border border-slate-200 sticky top-24">
+                <div className="flex justify-between items-center mb-8">
+                    <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
+                        <div className={`p-2 rounded-xl bg-indigo-50 text-indigo-600`}>
+                            {editingId ? <Pencil size={20} /> : <ArrowRightLeft size={20} />}
+                        </div>
+                        {editingId ? 'Modify Transfer' : 'Internal Transfer'}
+                    </h3>
+                    {editingId && <button type="button" onClick={handleCancel} className="text-xs font-black text-slate-400 hover:text-slate-900 uppercase tracking-widest">Cancel</button>}
+                </div>
 
-            <Select 
-            label="Packing Type"
-            options={availablePackingTypes.map(pt => ({ value: pt.id, label: pt.name }))}
-            value={selectedPackingTypeId}
-            onChange={handlePackingTypeChange}
-            required
-            />
-            <Input label="Packing Qty" type="number" value={qty} onChange={e => handleQtyChange(e.target.value)} required />
-            <Input label="Net Weight (KG)" type="number" value={weight} onChange={e => handleWeightChange(e.target.value)} required />
-            
-            {/* TO */}
-            <div className="col-span-1 md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4">
-                <h4 className="md:col-span-2 font-medium text-gray-500">To</h4>
-                <Select 
-                label="Main Location"
-                options={getMainLocations().map(l => ({ value: l.id, label: l.name }))}
-                value={toMainLocId}
-                onChange={e => { setToMainLocId(e.target.value); setToSubLocId(''); }}
-                required
-                />
-                <Select 
-                label="Sub Location"
-                options={toSubLocations.map(l => ({ value: l.id, label: l.name }))}
-                value={toSubLocId}
-                onChange={e => setToSubLocId(e.target.value)}
-                disabled={!toMainLocId}
-                />
-            </div>
+                <div className="space-y-4">
+                    <Input label="Transfer Date" type="date" value={date} onChange={e => setDate(e.target.value)} required />
+                    <Select 
+                        label="Perfume Asset"
+                        options={perfumes.map(p => ({ value: p.id, label: `${p.code} - ${p.name}` }))}
+                        value={selectedPerfumeId}
+                        onChange={e => { setSelectedPerfumeId(e.target.value); setBatchNumber(''); }}
+                        required
+                    />
 
-        </div>
-        <div className="mt-4">
-            <Input label="Remarks" value={remarks} onChange={e => setRemarks(e.target.value)} />
-        </div>
-        <div className="mt-4 flex justify-end">
-            <Button type="submit" className="bg-blue-600 hover:bg-blue-700">{editingId ? 'Update Transfer' : 'Transfer Stock'}</Button>
-        </div>
-        </form>
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-2">
+                           <MapPin size={10} /> Origin Warehouse
+                        </p>
+                        <Select 
+                            label="From Main Location"
+                            options={getMainLocations().map(l => ({ value: l.id, label: l.name }))}
+                            value={fromMainLocId}
+                            onChange={e => { setFromMainLocId(e.target.value); setFromSubLocId(''); setBatchNumber(''); }}
+                            required
+                        />
+                        <Select 
+                            label="From Sub Location"
+                            options={fromSubLocations.map(l => ({ value: l.id, label: l.name }))}
+                            value={fromSubLocId}
+                            onChange={e => setFromSubLocId(e.target.value)}
+                            disabled={!fromMainLocId}
+                        />
+                    </div>
 
-        {/* List of recent transactions */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-            <h3 className="px-6 py-4 border-b border-gray-100 font-medium text-gray-700 bg-gray-50">Recent Stock Transfers</h3>
-            <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left text-gray-700">
-                    <thead className="text-xs text-gray-500 uppercase bg-gray-50 border-b">
-                        <tr>
-                            <th className="px-6 py-3">Date</th>
-                            <th className="px-6 py-3">Perfume</th>
-                            <th className="px-6 py-3">Batch</th>
-                            <th className="px-6 py-3 text-right">Weight</th>
-                            <th className="px-6 py-3">From</th>
-                            <th className="px-6 py-3">To</th>
-                            <th className="px-6 py-3 text-right">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                        {transferLogs.slice().reverse().slice(0, 10).map(log => {
-                            const p = perfumes.find(x => x.id === log.perfumeId);
-                            const fromLoc = locations.find(x => x.id === log.fromMainLocationId);
-                            const toLoc = locations.find(x => x.id === log.toMainLocationId);
-                            return (
-                                <tr key={log.id} className="hover:bg-gray-50">
-                                    <td className="px-6 py-3">{log.date}</td>
-                                    <td className="px-6 py-3 font-medium">{p?.name}</td>
-                                    <td className="px-6 py-3 font-mono text-xs">{log.batchNumber}</td>
-                                    <td className="px-6 py-3 text-right">{log.netWeight.toFixed(2)}</td>
-                                    <td className="px-6 py-3 text-xs">{fromLoc?.name}</td>
-                                    <td className="px-6 py-3 text-xs">{toLoc?.name}</td>
-                                    <td className="px-6 py-3 text-right">
-                                        <div className="flex justify-end gap-2">
-                                            <button onClick={() => handleEdit(log)} className="text-indigo-600 hover:text-indigo-900"><Pencil size={14}/></button>
-                                            <button onClick={() => handleDelete(log.id)} className="text-red-600 hover:text-red-900"><Trash2 size={14}/></button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            )
-                        })}
-                        {transferLogs.length === 0 && <tr><td colSpan={7} className="px-6 py-4 text-center text-gray-400">No transfers yet.</td></tr>}
-                    </tbody>
-                </table>
+                    <Select 
+                        label="Batch to Move"
+                        options={availableBatches.map(b => ({ value: b.batch, label: `${b.batch} (${b.weight.toFixed(2)} kg available)` }))}
+                        value={batchNumber}
+                        onChange={e => {
+                            setBatchNumber(e.target.value);
+                            const b = availableBatches.find(x => x.batch === e.target.value);
+                            if (b) {
+                                setWeight(b.weight.toFixed(2));
+                                const pt = packingTypes.find(x => x.id === selectedPackingTypeId);
+                                if (pt?.qtyPerPacking) setQty((b.weight / pt.qtyPerPacking).toFixed(2));
+                            }
+                        }}
+                        required
+                        disabled={!selectedPerfumeId || !fromMainLocId}
+                    />
+
+                    <div className="p-4 bg-indigo-50/30 rounded-2xl border border-indigo-100 space-y-3">
+                        <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1 flex items-center gap-2">
+                           <MapPin size={10} /> Destination Hub
+                        </p>
+                        <Select 
+                            label="To Main Location"
+                            options={getMainLocations().map(l => ({ value: l.id, label: l.name }))}
+                            value={toMainLocId}
+                            onChange={e => { setToMainLocId(e.target.value); setToSubLocId(''); }}
+                            required
+                        />
+                        <Select 
+                            label="To Sub Location"
+                            options={toSubLocations.map(l => ({ value: l.id, label: l.name }))}
+                            value={toSubLocId}
+                            onChange={e => setToSubLocId(e.target.value)}
+                            disabled={!toMainLocId}
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <Select 
+                            label="Unit Packing"
+                            options={packingTypes.map(pt => ({ value: pt.id, label: pt.name }))}
+                            value={selectedPackingTypeId}
+                            onChange={e => setSelectedPackingTypeId(e.target.value)}
+                            required
+                        />
+                        <Input label="Net Weight (KG)" type="number" step="0.01" value={weight} onChange={e => handleWeightChange(e.target.value)} required />
+                    </div>
+                    <Input label="Packing Quantity" type="number" value={qty} onChange={e => handleQtyChange(e.target.value)} required />
+                    <Input label="Move Remarks" value={remarks} onChange={e => setRemarks(e.target.value)} />
+                </div>
+
+                <Button type="submit" className="w-full mt-8 py-4 bg-indigo-600 hover:bg-indigo-700 shadow-xl shadow-indigo-600/20 font-black tracking-widest uppercase text-xs">Execute Transfer</Button>
+            </form>
+        </div>
+
+        <div className="xl:col-span-2 space-y-8">
+            <div className="bg-white rounded-[2.5rem] shadow-soft border border-slate-200 overflow-hidden">
+                <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                    <h3 className="font-black text-slate-900 text-lg">Transfer Logistics Record</h3>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Global History</span>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                        <thead className="text-[10px] text-slate-400 uppercase tracking-[0.2em] bg-slate-50 border-b border-slate-100">
+                            <tr>
+                                <th className="px-8 py-6">Timeline</th>
+                                <th className="px-8 py-6">Asset & Batch</th>
+                                <th className="px-8 py-6">Movement Logic</th>
+                                <th className="px-8 py-6 text-right">Net Load</th>
+                                <th className="px-8 py-6 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {transferLogs.slice().reverse().slice(0, 15).map(log => {
+                                const p = perfumes.find(x => x.id === log.perfumeId);
+                                return (
+                                    <tr key={log.id} className="hover:bg-slate-50/50 transition-all group">
+                                        <td className="px-8 py-6 text-slate-400 font-mono text-[10px] font-bold">{log.date}</td>
+                                        <td className="px-8 py-6">
+                                            <div className="font-black text-slate-800">{p?.name}</div>
+                                            <div className="text-[10px] text-indigo-500 font-bold font-mono mt-1 uppercase">Batch: {log.batchNumber}</div>
+                                        </td>
+                                        <td className="px-8 py-6">
+                                            <div className="flex items-center gap-3 text-xs font-bold text-slate-500">
+                                                <div className="px-2 py-1 bg-slate-100 rounded-lg">{getLocName(log.fromMainLocationId)}</div>
+                                                <ArrowRight size={14} className="text-slate-300" />
+                                                <div className="px-2 py-1 bg-indigo-50 text-indigo-600 rounded-lg">{getLocName(log.toMainLocationId)}</div>
+                                            </div>
+                                        </td>
+                                        <td className="px-8 py-6 text-right font-black text-slate-900">{log.netWeight.toFixed(2)} <span className="text-slate-400 text-[10px] font-normal">kg</span></td>
+                                        <td className="px-8 py-6 text-right opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="flex justify-end gap-2">
+                                                <button onClick={() => handleEdit(log)} className="p-2 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-indigo-600 hover:border-indigo-500 transition-all"><Pencil size={14}/></button>
+                                                <button onClick={() => deleteTransferLog(log.id)} className="p-2 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-rose-500 hover:border-rose-500 transition-all"><Trash2 size={14}/></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                )
+                            })}
+                            {transferLogs.length === 0 && (
+                                <tr><td colSpan={5} className="px-8 py-32 text-center text-slate-300 font-bold italic text-lg">No stock transfers recorded in the ledger.</td></tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>

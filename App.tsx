@@ -22,269 +22,204 @@ import {
   Package, 
   FlaskConical, 
   TrendingUp, 
-  ArrowDownToLine, 
-  ArrowUpFromLine, 
-  ArrowRightLeft,
-  Coins,
+  Search,
+  ChevronDown,
+  User as UserIcon,
+  Bell,
+  CheckCircle2,
+  PlusCircle,
+  BarChart3,
+  ArrowDownToLine,
+  ArrowUpFromLine,
   Lock
 } from 'lucide-react';
 import { UserRole } from './types';
 
-// --- DASHBOARD COMPONENT ---
-const Dashboard = () => {
+const DashboardCard = ({ title, value, subtitle, icon: Icon, color, trend }: any) => (
+  <div className="glass-card p-6 rounded-[2rem] shadow-soft border border-slate-200/60 relative overflow-hidden group hover:shadow-lg transition-all duration-300">
+    <div className={`absolute top-0 right-0 w-24 h-24 -mr-8 -mt-8 rounded-full opacity-5 group-hover:scale-110 transition-transform duration-500 ${color}`}></div>
+    <div className="flex justify-between items-start mb-4">
+      <div className={`p-4 rounded-2xl ${color} bg-opacity-10 shadow-sm`}>
+        <Icon size={22} className={color.replace('bg-', 'text-')} />
+      </div>
+      {trend && (
+        <span className={`text-[10px] font-black px-3 py-1 rounded-full ${trend > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+          {trend > 0 ? '+' : ''}{trend}%
+        </span>
+      )}
+    </div>
+    <div>
+      <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">{title}</p>
+      <h3 className="text-3xl font-black text-slate-900 mt-1">{value}</h3>
+      <p className="text-xs text-slate-500 mt-2 font-bold">{subtitle}</p>
+    </div>
+  </div>
+);
+
+interface DashboardProps {
+  setView: (view: string) => void;
+  searchTerm: string;
+}
+
+const Dashboard: React.FC<DashboardProps> = ({ setView, searchTerm }) => {
   const { 
-    perfumes, suppliers, packingTypes,
-    gateInLogs, gateOutLogs, transferLogs,
-    currentUser, hasPermission
+    perfumes, suppliers, gateInLogs, gateOutLogs, hasPermission, currentUser, getPerfumeStockBreakdown
   } = useInventory();
 
-  const canViewPrices = hasPermission('view_prices');
+  const isOperator = currentUser?.role === UserRole.Operator;
 
-  // --- Real-time Stock Calculation Logic ---
-  const dashboardData = useMemo(() => {
-    const stockMap: Record<string, number> = {};
-    const perfumeSupplierMap: Record<string, string> = {};
-    const supplierLastStockedMap: Record<string, number> = {}; 
-
-    perfumes.forEach(p => {
-        perfumeSupplierMap[p.id] = p.supplierId;
-    });
-    
-    const getWeight = (log: any) => {
-      if (typeof log.netWeight === 'number' && log.netWeight > 0) return log.netWeight;
-      const pt = packingTypes.find(p => p.id === log.packingTypeId);
-      if (pt) return (log.packingQty || 0) * pt.qtyPerPacking;
-      return 0;
-    };
-
-    const allowedLocs = currentUser?.permissions?.allowedLocationIds || [];
-    const isLocRestricted = allowedLocs.length > 0;
-
-    const filterLogLoc = (l: any) => {
-       if (!isLocRestricted) return true;
-       if (l.mainLocationId) return allowedLocs.includes(l.mainLocationId);
-       if (l.fromMainLocationId) return allowedLocs.includes(l.fromMainLocationId) || allowedLocs.includes(l.toMainLocationId);
-       return true;
-    };
-
-    gateInLogs.filter(filterLogLoc).forEach(l => {
-      stockMap[l.perfumeId] = (stockMap[l.perfumeId] || 0) + getWeight(l);
-      const sId = perfumeSupplierMap[l.perfumeId];
-      if (sId) {
-          const logTs = new Date(l.date).getTime();
-          if (!supplierLastStockedMap[sId] || logTs > supplierLastStockedMap[sId]) {
-              supplierLastStockedMap[sId] = logTs;
-          }
-      }
-    });
-
-    gateOutLogs.filter(filterLogLoc).forEach(l => {
-      stockMap[l.perfumeId] = (stockMap[l.perfumeId] || 0) - getWeight(l);
-    });
-
-    let totalValueUSD = 0;
-    let totalValuePKR = 0;
+  const stats = useMemo(() => {
     let totalWeight = 0;
-    let lowStockCount = 0;
-    const supplierStatsMap: Record<string, { count: number; valueUSD: number; valuePKR: number; weight: number }> = {};
+    let lowStock = 0;
+    const stockMap: Record<string, number> = {};
 
     perfumes.forEach(p => {
-      const currentWeight = stockMap[p.id] || 0;
-      if (currentWeight > 0.001) {
-        const valUSD = currentWeight * (p.priceUSD || 0);
-        const valPKR = currentWeight * (p.pricePKR || 0);
-        totalWeight += currentWeight;
-        totalValueUSD += valUSD;
-        totalValuePKR += valPKR;
-
-        if (!supplierStatsMap[p.supplierId]) {
-          supplierStatsMap[p.supplierId] = { count: 0, valueUSD: 0, valuePKR: 0, weight: 0 };
-        }
-        supplierStatsMap[p.supplierId].count += 1;
-        supplierStatsMap[p.supplierId].valueUSD += valUSD;
-        supplierStatsMap[p.supplierId].valuePKR += valPKR;
-        supplierStatsMap[p.supplierId].weight += currentWeight;
-      }
-      if (currentWeight <= (p.lowStockAlert || 0)) {
-        lowStockCount++;
-      }
+        const breakdown = getPerfumeStockBreakdown(p.id);
+        const weight = breakdown.reduce((acc, b) => acc + b.weight, 0);
+        totalWeight += weight;
+        if (weight <= p.lowStockAlert) lowStock++;
     });
 
-    const supplierTable = suppliers.map(s => {
-      const stats = supplierStatsMap[s.id] || { count: 0, valueUSD: 0, valuePKR: 0, weight: 0 };
-      const lastStockedTs = supplierLastStockedMap[s.id];
-      return {
-        id: s.id,
-        name: s.name,
-        contact: s.contactPerson,
-        itemsInStock: stats.count,
-        stockWeight: stats.weight,
-        valueUSD: stats.valueUSD,
-        valuePKR: stats.valuePKR,
-        lastStocked: lastStockedTs ? new Date(lastStockedTs).toISOString().split('T')[0] : null
-      };
-    }).sort((a, b) => b.valueUSD - a.valueUSD);
+    return { totalWeight, lowStock, totalItems: perfumes.length };
+  }, [perfumes, getPerfumeStockBreakdown]);
 
-    const combinedLogs = [
-      ...gateInLogs.filter(filterLogLoc).map(l => ({ ...l, type: 'Gate In', ts: new Date(l.date).getTime() })),
-      ...gateOutLogs.filter(filterLogLoc).map(l => ({ ...l, type: 'Gate Out', ts: new Date(l.date).getTime() })),
-      ...transferLogs.filter(filterLogLoc).map(l => ({ ...l, type: 'Transfer', ts: new Date(l.date).getTime() }))
-    ].sort((a, b) => b.ts - a.ts).slice(0, 5);
-
-    const recentActivity = combinedLogs.map(log => {
-      const p = perfumes.find(x => x.id === log.perfumeId);
-      return {
-        id: log.id,
-        type: log.type,
-        date: log.date,
-        perfumeName: p?.name || 'Unknown',
-        weight: getWeight(log)
-      };
-    });
-
-    return {
-      totalPerfumes: perfumes.length,
-      lowStockCount,
-      totalValueUSD,
-      totalValuePKR,
-      totalWeight,
-      supplierTable,
-      recentActivity
-    };
-  }, [perfumes, suppliers, packingTypes, gateInLogs, gateOutLogs, transferLogs, currentUser]);
-
-  const formatCurrency = (val: number, currency: 'USD' | 'PKR') => {
-    return currency === 'USD' 
-      ? `$${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
-      : `Rs ${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-  };
+  const filteredPerfumes = useMemo(() => {
+    return perfumes
+        .filter(p => 
+            p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+            p.code.toLowerCase().includes(searchTerm.toLowerCase())
+        )
+        .slice(0, 5);
+  }, [perfumes, searchTerm]);
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-800">Dashboard Overview</h2>
-        <p className="text-gray-500 text-sm">Real-time inventory metrics.</p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col justify-between">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Perfumes</p>
-              <h3 className="text-2xl font-bold text-gray-800 mt-1">{dashboardData.totalPerfumes}</h3>
-            </div>
-            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><FlaskConical size={20} /></div>
-          </div>
-          <p className="text-xs text-gray-400 mt-3">Registered Master Items</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col justify-between">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Low Stock</p>
-              <h3 className={`text-2xl font-bold mt-1 ${dashboardData.lowStockCount > 0 ? 'text-red-600' : 'text-gray-800'}`}>
-                {dashboardData.lowStockCount}
-              </h3>
-            </div>
-            <div className={`p-2 rounded-lg ${dashboardData.lowStockCount > 0 ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-600'}`}><AlertTriangle size={20} /></div>
-          </div>
-          <p className="text-xs text-gray-400 mt-3">Items below alert level</p>
-        </div>
-
-        {canViewPrices ? (
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col justify-between">
-            <div className="flex justify-between items-start">
-                <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Value (USD)</p>
-                <h3 className="text-2xl font-bold text-emerald-700 mt-1">{formatCurrency(dashboardData.totalValueUSD, 'USD')}</h3>
-                </div>
-                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><DollarSign size={20} /></div>
-            </div>
-            <p className="text-xs text-gray-400 mt-3">Current Stock Valuation</p>
-            </div>
-        ) : (
-            <div className="bg-gray-50 p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col justify-center items-center opacity-70">
-                <Lock size={24} className="text-gray-400 mb-2"/><span className="text-xs text-gray-500">Valuation Hidden</span>
-            </div>
-        )}
-
-        {canViewPrices ? (
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col justify-between">
-            <div className="flex justify-between items-start">
-                <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Value (PKR)</p>
-                <h3 className="text-2xl font-bold text-teal-700 mt-1">{formatCurrency(dashboardData.totalValuePKR, 'PKR')}</h3>
-                </div>
-                <div className="p-2 bg-teal-50 text-teal-600 rounded-lg"><Coins size={20} /></div>
-            </div>
-            <p className="text-xs text-gray-400 mt-3">Current Stock Valuation</p>
-            </div>
-         ) : (
-            <div className="bg-gray-50 p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col justify-center items-center opacity-70">
-                <Lock size={24} className="text-gray-400 mb-2"/><span className="text-xs text-gray-500">Valuation Hidden</span>
-            </div>
-        )}
-
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col justify-between">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Stock</p>
-              <h3 className="text-2xl font-bold text-blue-700 mt-1">{dashboardData.totalWeight.toLocaleString(undefined, {maximumFractionDigits: 0})} <span className="text-sm font-normal text-gray-500">kg</span></h3>
-            </div>
-            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Package size={20} /></div>
-          </div>
-          <p className="text-xs text-gray-400 mt-3">Net Weight Available</p>
+    <div className="p-10 space-y-12 animate-in fade-in duration-700">
+      <div className="flex justify-between items-end">
+        <div>
+          <h2 className="text-5xl font-black text-slate-900 tracking-tighter">Command Center</h2>
+          <p className="text-slate-500 mt-2 font-bold flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+            System running optimally as <span className="text-indigo-600 font-black">{currentUser?.role}</span>
+          </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col">
-          <div className="p-5 border-b border-gray-100 flex justify-between items-center">
-            <h3 className="font-bold text-gray-800 flex items-center gap-2"><TrendingUp size={18} className="text-indigo-500"/>Supplier Inventory Holdings</h3>
-            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">{dashboardData.supplierTable.length} Suppliers</span>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+        <DashboardCard 
+          title="Master Inventory" 
+          value={stats.totalItems} 
+          subtitle="Unique SKUs" 
+          icon={FlaskConical} 
+          color="bg-indigo-500" 
+          trend={2.4}
+        />
+        <DashboardCard 
+          title="Stock Alerts" 
+          value={stats.lowStock} 
+          subtitle="At Risk" 
+          icon={AlertTriangle} 
+          color={stats.lowStock > 0 ? "bg-rose-500" : "bg-emerald-500"} 
+        />
+        <DashboardCard 
+          title="Net Weight" 
+          value={`${stats.totalWeight.toLocaleString()} kg`} 
+          subtitle="Aggregated Stock" 
+          icon={Package} 
+          color="bg-slate-800" 
+        />
+        <DashboardCard 
+          title="Supply Base" 
+          value={suppliers.length} 
+          subtitle="Active Partnerships" 
+          icon={TrendingUp} 
+          color="bg-amber-500" 
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-10">
+        <div className="lg:col-span-3 bg-white p-10 rounded-[3rem] shadow-soft border border-slate-200">
+          <div className="flex justify-between items-center mb-10">
+            <h3 className="font-black text-slate-900 text-2xl tracking-tight">Rapid Inventory Pulse</h3>
+            <button 
+              onClick={() => setView('reports')}
+              className="px-6 py-2 bg-slate-50 text-indigo-700 text-xs font-black uppercase tracking-widest rounded-2xl hover:bg-indigo-50 transition-all border border-slate-200"
+            >
+              Full Analytics
+            </button>
           </div>
-          <div className="overflow-x-auto flex-1">
-            <table className="w-full text-sm text-left text-gray-600">
-              <thead className="bg-gray-50 text-xs uppercase font-semibold text-gray-500">
-                <tr>
-                  <th className="px-6 py-3">Supplier</th>
-                  <th className="px-6 py-3 text-center">Items</th>
-                  <th className="px-6 py-3">Last Stocked</th>
-                  <th className="px-6 py-3 text-right">Weight (KG)</th>
-                  {canViewPrices && <th className="px-6 py-3 text-right">Value (USD)</th>}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {dashboardData.supplierTable.map(s => (
-                  <tr key={s.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-3"><div className="font-medium text-gray-900">{s.name}</div><div className="text-xs text-gray-400">{s.contact}</div></td>
-                    <td className="px-6 py-3 text-center">{s.itemsInStock > 0 ? <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2 py-1 rounded-full">{s.itemsInStock}</span> : '-'}</td>
-                    <td className="px-6 py-3 text-xs text-gray-500">{s.lastStocked || '-'}</td>
-                    <td className="px-6 py-3 text-right font-mono text-xs">{s.stockWeight > 0 ? s.stockWeight.toFixed(1) : '-'}</td>
-                    {canViewPrices && <td className="px-6 py-3 text-right font-medium text-gray-900">{s.valueUSD > 0 ? formatCurrency(s.valueUSD, 'USD') : '-'}</td>}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-8">
+            {filteredPerfumes.map(p => {
+                const breakdown = getPerfumeStockBreakdown(p.id);
+                const stock = breakdown.reduce((acc, b) => acc + b.weight, 0);
+                const pct = Math.min((stock / (p.lowStockAlert * 3)) * 100, 100);
+                return (
+                    <div key={p.id} className="group cursor-pointer" onClick={() => setView('reports')}>
+                        <div className="flex justify-between items-end mb-3">
+                            <div>
+                                <span className="font-black text-slate-800 text-lg group-hover:text-indigo-600 transition-colors">{p.name}</span>
+                                <p className="text-[10px] font-bold text-slate-400 font-mono">{p.code}</p>
+                            </div>
+                            <span className="font-mono font-black text-slate-500 bg-slate-100 px-3 py-1 rounded-xl">{stock.toFixed(1)} kg</span>
+                        </div>
+                        <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden shadow-inner">
+                            <div className={`h-full transition-all duration-1000 ${stock <= p.lowStockAlert ? 'bg-rose-500' : 'bg-indigo-500'}`} style={{ width: `${pct}%` }}></div>
+                        </div>
+                    </div>
+                );
+            })}
+            {filteredPerfumes.length === 0 && (
+                <div className="py-20 text-center space-y-4">
+                    <p className="text-slate-300 font-black italic text-xl">No assets found matching your query.</p>
+                </div>
+            )}
           </div>
         </div>
-
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col">
-          <div className="p-5 border-b border-gray-100"><h3 className="font-bold text-gray-800">Recent Activity</h3></div>
-          <div className="p-0">
-            {dashboardData.recentActivity.map((log, idx) => (
-              <div key={log.id} className={`p-4 flex items-start gap-3 ${idx !== dashboardData.recentActivity.length -1 ? 'border-b border-gray-100' : ''}`}>
-                <div className={`mt-1 p-1.5 rounded-full flex-shrink-0 ${log.type === 'Gate In' ? 'bg-green-100 text-green-600' : log.type === 'Gate Out' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
-                  {log.type === 'Gate In' && <ArrowDownToLine size={14} />}{log.type === 'Gate Out' && <ArrowUpFromLine size={14} />}{log.type === 'Transfer' && <ArrowRightLeft size={14} />}
+        
+        <div className="lg:col-span-2 bg-indigo-600 p-10 rounded-[3rem] shadow-2xl text-white relative overflow-hidden">
+            <div className="absolute top-0 right-0 -mr-20 -mt-20 w-80 h-80 bg-white opacity-5 rounded-full"></div>
+            <div className="relative z-10">
+                <h3 className="text-3xl font-black mb-2 tracking-tight">Quick Actions</h3>
+                <p className="text-indigo-200 text-sm font-bold mb-10">Optimized logistic workflows.</p>
+                <div className="grid grid-cols-1 gap-4">
+                    <button 
+                    onClick={() => setView('gate-in')}
+                    className="bg-white/10 hover:bg-white/20 transition-all p-6 rounded-[2rem] flex items-center gap-5 border border-white/10 group"
+                    >
+                        <div className="p-4 bg-white/10 rounded-2xl group-hover:scale-110 transition-transform">
+                            <ArrowDownToLine size={24} className="text-indigo-200 group-hover:text-white" />
+                        </div>
+                        <div className="text-left">
+                            <p className="font-black text-lg">Inbound Log</p>
+                            <p className="text-xs text-indigo-300 font-bold">Process new stock arrivals</p>
+                        </div>
+                    </button>
+                    <button 
+                    onClick={() => !isOperator ? setView('perfumes') : null}
+                    disabled={isOperator}
+                    className={`bg-white/10 p-6 rounded-[2rem] flex items-center gap-5 border border-white/10 group transition-all ${isOperator ? 'opacity-30 cursor-not-allowed' : 'hover:bg-white/20'}`}
+                    >
+                        <div className="p-4 bg-white/10 rounded-2xl group-hover:scale-110 transition-transform">
+                            {isOperator ? <Lock size={24} className="text-indigo-200" /> : <PlusCircle size={24} className="text-indigo-200 group-hover:text-white" />}
+                        </div>
+                        <div className="text-left">
+                            <p className="font-black text-lg">Create Asset</p>
+                            <p className="text-xs text-indigo-300 font-bold">{isOperator ? 'Administrative only' : 'Add to perfume master'}</p>
+                        </div>
+                    </button>
+                    <button 
+                    onClick={() => setView('gate-out')}
+                    className="bg-white/10 hover:bg-white/20 transition-all p-6 rounded-[2rem] flex items-center gap-5 border border-white/10 group"
+                    >
+                        <div className="p-4 bg-white/10 rounded-2xl group-hover:scale-110 transition-transform">
+                            <ArrowUpFromLine size={24} className="text-indigo-200 group-hover:text-white" />
+                        </div>
+                        <div className="text-left">
+                            <p className="font-black text-lg">Outbound Issue</p>
+                            <p className="text-xs text-indigo-300 font-bold">Dispatch stock for production</p>
+                        </div>
+                    </button>
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{log.perfumeName}</p>
-                  <div className="flex gap-2 items-center mt-0.5"><span className="text-xs text-gray-500">{log.date}</span><span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{log.type}</span></div>
-                  <p className="text-xs text-gray-500 mt-1">{log.type === 'Gate In' ? 'Received' : log.type === 'Gate Out' ? 'Issued' : 'Moved'} <span className="font-mono ml-1 font-medium text-gray-700">{log.weight.toFixed(2)} kg</span></p>
-                </div>
-              </div>
-            ))}
-          </div>
+            </div>
         </div>
       </div>
     </div>
@@ -294,48 +229,122 @@ const Dashboard = () => {
 const AppContent = () => {
   const { users, currentUser, setCurrentUser } = useInventory();
   const [currentView, setCurrentView] = useState('dashboard');
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [dashboardSearch, setDashboardSearch] = useState('');
 
   const renderView = () => {
+    const role = currentUser?.role;
+    const isViewer = role === UserRole.Viewer;
+    const isAdmin = role === UserRole.Admin;
+
     switch(currentView) {
-      case 'dashboard': return <Dashboard />;
+      case 'dashboard': return <Dashboard setView={setCurrentView} searchTerm={dashboardSearch} />;
       case 'reports': return <ReportsView />;
-      case 'database': return <div className="p-8"><h2 className="text-2xl font-bold mb-4">Database Settings</h2><DatabaseSettings /></div>;
-      case 'users': return <div className="p-8"><h2 className="text-2xl font-bold mb-4">User Management</h2><UserForm /></div>;
-      case 'suppliers': return <div className="p-8"><h2 className="text-2xl font-bold mb-4">Suppliers</h2><SupplierForm /></div>;
-      case 'customers': return <div className="p-8"><h2 className="text-2xl font-bold mb-4">Customers</h2><CustomerForm /></div>;
-      case 'packing': return <div className="p-8"><h2 className="text-2xl font-bold mb-4">Packing Types</h2><PackingTypeForm /></div>;
-      case 'locations': return <div className="p-8"><h2 className="text-2xl font-bold mb-4">Locations</h2><LocationForm /></div>;
-      case 'perfumes': return <div className="p-8"><h2 className="text-2xl font-bold mb-4">Perfume Management</h2><PerfumeMasterForm /></div>;
-      case 'gate-in': return <div className="p-8"><h2 className="text-2xl font-bold mb-4">Gate In</h2><GateInForm /></div>;
-      case 'gate-out': return <div className="p-8"><h2 className="text-2xl font-bold mb-4">Gate Out</h2><GateOutForm /></div>;
-      case 'transfer': return <div className="p-8"><h2 className="text-2xl font-bold mb-4">Stock Transfer</h2><StockTransferForm /></div>;
-      default: return <Dashboard />;
+      case 'gate-in': 
+        if (isViewer) return <Dashboard setView={setCurrentView} searchTerm={dashboardSearch} />;
+        return <div className="p-10"><GateInForm /></div>;
+      case 'gate-out': 
+        if (isViewer) return <Dashboard setView={setCurrentView} searchTerm={dashboardSearch} />;
+        return <div className="p-10"><GateOutForm /></div>;
+      case 'transfer': 
+        if (isViewer) return <Dashboard setView={setCurrentView} searchTerm={dashboardSearch} />;
+        return <div className="p-10"><StockTransferForm /></div>;
+      case 'users': 
+        if (!isAdmin) return <Dashboard setView={setCurrentView} searchTerm={dashboardSearch} />;
+        return <div className="p-10"><UserForm /></div>;
+      case 'database': 
+        if (!isAdmin) return <Dashboard setView={setCurrentView} searchTerm={dashboardSearch} />;
+        return <div className="p-10"><DatabaseSettings /></div>;
+      case 'suppliers': 
+        if (!isAdmin) return <Dashboard setView={setCurrentView} searchTerm={dashboardSearch} />;
+        return <div className="p-10"><SupplierForm /></div>;
+      case 'customers': 
+        if (!isAdmin) return <Dashboard setView={setCurrentView} searchTerm={dashboardSearch} />;
+        return <div className="p-10"><CustomerForm /></div>;
+      case 'packing': 
+        if (!isAdmin) return <Dashboard setView={setCurrentView} searchTerm={dashboardSearch} />;
+        return <div className="p-10"><PackingTypeForm /></div>;
+      case 'locations': 
+        if (!isAdmin) return <Dashboard setView={setCurrentView} searchTerm={dashboardSearch} />;
+        return <div className="p-10"><LocationForm /></div>;
+      case 'perfumes': 
+        if (!isAdmin) return <Dashboard setView={setCurrentView} searchTerm={dashboardSearch} />;
+        return <div className="p-10"><PerfumeMasterForm /></div>;
+      default: return <Dashboard setView={setCurrentView} searchTerm={dashboardSearch} />;
     }
   };
 
   return (
-    <div className="flex min-h-screen bg-slate-50 font-sans text-gray-900">
+    <div className="flex min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100">
       <Sidebar currentView={currentView} setView={setCurrentView} />
-      <main className="flex-1 overflow-y-auto">
-        <header className="bg-white shadow-sm h-16 flex items-center px-8 justify-between sticky top-0 z-10">
-           <span className="text-lg font-medium text-gray-600 capitalize">{currentView.replace('-', ' ')}</span>
-           <div className="flex items-center gap-4">
-             <div className="flex items-center gap-2">
-                 <span className="text-xs text-gray-500">Switch User:</span>
-                 <select className="text-sm border border-gray-300 rounded px-2 py-1" value={currentUser?.id} onChange={(e) => {
-                        const user = users.find(u => u.id === e.target.value);
-                        if(user) setCurrentUser(user);
-                        setCurrentView('dashboard');
-                    }}>
-                     {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
-                 </select>
-             </div>
-             <div className="w-8 h-8 rounded-full bg-pink-100 flex items-center justify-center text-pink-600 font-bold text-sm">
-                 {currentUser?.name.charAt(0)}
+      <main className="flex-1 flex flex-col min-h-screen">
+        <header className="bg-white/70 backdrop-blur-2xl sticky top-0 z-40 border-b border-slate-200 h-24 flex items-center px-12 justify-between">
+           <div className="flex items-center gap-8">
+               <span className="text-xl font-black text-slate-900 tracking-tighter capitalize border-l-4 border-indigo-600 pl-4 py-1">
+                   {currentView.replace('-', ' ')}
+               </span>
+               <div className="hidden lg:flex items-center gap-4 bg-slate-100 px-6 py-3 rounded-2xl border border-slate-200 group focus-within:ring-4 focus-within:ring-indigo-500/10 focus-within:bg-white transition-all">
+                   <Search size={18} className="text-slate-400" />
+                   <input 
+                      type="text" 
+                      placeholder="Global Intelligence Search..." 
+                      className="text-sm font-bold outline-none w-64 bg-transparent text-slate-700" 
+                      value={dashboardSearch}
+                      onChange={(e) => setDashboardSearch(e.target.value)}
+                   />
+               </div>
+           </div>
+           
+           <div className="flex items-center gap-8">
+             <button className="text-slate-400 hover:text-indigo-600 transition-all relative p-2 rounded-xl hover:bg-indigo-50">
+                 <Bell size={24} />
+                 <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white"></span>
+             </button>
+             
+             <div className="relative">
+                 <button 
+                    onClick={() => setShowUserMenu(!showUserMenu)}
+                    className="flex items-center gap-4 bg-white hover:bg-slate-50 transition-all pl-1.5 pr-5 py-1.5 rounded-2xl border border-slate-200 group shadow-sm"
+                 >
+                     <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center text-white font-black text-sm shadow-xl">
+                         {currentUser?.name.charAt(0)}
+                     </div>
+                     <div className="text-left">
+                         <p className="text-sm font-black text-slate-900 leading-none">{currentUser?.name}</p>
+                         <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">{currentUser?.role}</p>
+                     </div>
+                     <ChevronDown size={16} className="text-slate-300 group-hover:text-indigo-600 transition-all" />
+                 </button>
+
+                 {showUserMenu && (
+                     <div className="absolute right-0 mt-4 w-64 bg-white rounded-3xl shadow-2xl border border-slate-100 py-3 animate-in slide-in-from-top-4 duration-300 ring-1 ring-slate-900/5">
+                         <div className="px-5 py-4 border-b border-slate-50 mb-2">
+                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Accounts</p>
+                         </div>
+                         {users.map(u => (
+                             <button 
+                                key={u.id}
+                                onClick={() => { setCurrentUser(u); setShowUserMenu(false); setCurrentView('dashboard'); }}
+                                className={`w-full text-left px-5 py-3.5 text-sm flex items-center gap-4 hover:bg-slate-50 transition-all ${currentUser?.id === u.id ? 'bg-indigo-50/50' : ''}`}
+                             >
+                                 <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black ${currentUser?.id === u.id ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-500'}`}>
+                                     {u.name.charAt(0)}
+                                 </div>
+                                 <div className="flex-1">
+                                     <p className={`font-black ${currentUser?.id === u.id ? 'text-indigo-700' : 'text-slate-700'}`}>{u.name}</p>
+                                     <p className="text-[10px] text-slate-400 font-bold uppercase">{u.role}</p>
+                                 </div>
+                                 {currentUser?.id === u.id && <CheckCircle2 size={16} className="text-indigo-600" />}
+                             </button>
+                         ))}
+                     </div>
+                 )}
              </div>
            </div>
         </header>
-        {renderView()}
+        <div className="flex-1 overflow-y-auto">
+            {renderView()}
+        </div>
       </main>
     </div>
   );

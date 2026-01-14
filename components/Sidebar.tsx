@@ -28,19 +28,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, category: 'General' },
     { id: 'reports', label: 'Reports & Export', icon: FileText, category: 'General' },
     
-    // Admin only usually
-    { id: 'users', label: 'Users', icon: ShieldCheck, category: 'System Forms' },
-    { id: 'suppliers', label: 'Suppliers', icon: Users, category: 'System Forms' },
-    { id: 'customers', label: 'Customers', icon: Users, category: 'System Forms' },
-    { id: 'packing', label: 'Packing Types', icon: Package, category: 'System Forms' },
-    { id: 'locations', label: 'Locations', icon: MapPin, category: 'System Forms' },
-    { id: 'database', label: 'Database Management', icon: Database, category: 'System Forms' },
+    // Master Data
+    { id: 'perfumes', label: 'Perfume Master', icon: FlaskConical, category: 'Master Data' },
+    { id: 'suppliers', label: 'Suppliers', icon: Users, category: 'Master Data' },
+    { id: 'customers', label: 'Customers', icon: Users, category: 'Master Data' },
+    { id: 'packing', label: 'Packing Types', icon: Package, category: 'Master Data' },
+    { id: 'locations', label: 'Locations', icon: MapPin, category: 'Master Data' },
     
     // Transactions
-    { id: 'perfumes', label: 'Perfume Master', icon: FlaskConical, category: 'Transactions' },
     { id: 'gate-in', label: 'Gate In Log', icon: ArrowDownToLine, category: 'Transactions' },
     { id: 'gate-out', label: 'Gate Out Log', icon: ArrowUpFromLine, category: 'Transactions' },
     { id: 'transfer', label: 'Stock Transfer', icon: ArrowRightLeft, category: 'Transactions' },
+
+    // System
+    { id: 'users', label: 'User Management', icon: ShieldCheck, category: 'System' },
+    { id: 'database', label: 'Database & Backup', icon: Database, category: 'System' },
   ];
 
   const canAccess = (itemId: string): boolean => {
@@ -48,10 +50,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
     if (currentUser.role === UserRole.Admin) return true;
 
     if (currentUser.role === UserRole.Operator) {
+        // Operators can only do logistics transactions + dashboard
         return ['dashboard', 'gate-in', 'gate-out', 'transfer'].includes(itemId);
     }
 
     if (currentUser.role === UserRole.Viewer) {
+        // Viewers are strictly restricted to analytics
         return ['dashboard', 'reports'].includes(itemId);
     }
 
@@ -62,44 +66,57 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
   const categories = Array.from(new Set(visibleItems.map(item => item.category)));
 
   return (
-    <div className="w-64 bg-slate-800 text-white flex flex-col h-full min-h-screen">
-      <div className="p-6 border-b border-slate-700">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-           <FlaskConical className="text-pink-400" /> ScentVault
-        </h1>
-        <p className="text-xs text-slate-400 mt-1">Inventory Management</p>
+    <div className="w-64 bg-slate-900 text-white flex flex-col h-full min-h-screen border-r border-slate-800">
+      <div className="p-8">
+        <div className="flex items-center gap-3 mb-1">
+          <div className="bg-primary-600 p-2 rounded-lg shadow-lg shadow-primary-900/20">
+            <FlaskConical size={20} className="text-white" />
+          </div>
+          <h1 className="text-xl font-black tracking-tighter">SCENT<span className="text-primary-500">VAULT</span></h1>
+        </div>
+        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em] ml-11">Enterprise Core</p>
       </div>
 
       <div className="flex-1 overflow-y-auto py-4">
         {categories.map(category => (
           <div key={category} className="mb-6">
-            <h3 className="px-6 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+            <h3 className="px-8 text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 opacity-50">
               {category}
             </h3>
-            <ul>
-              {visibleItems.filter(i => i.category === category).map(item => (
-                <li key={item.id}>
-                  <button
-                    onClick={() => setView(item.id)}
-                    className={`w-full flex items-center gap-3 px-6 py-3 text-sm transition-colors ${
-                      currentView === item.id 
-                        ? 'bg-slate-700 text-white border-r-4 border-pink-500' 
-                        : 'text-slate-300 hover:bg-slate-700 hover:text-white'
-                    }`}
-                  >
-                    <item.icon size={18} />
-                    {item.label}
-                  </button>
-                </li>
-              ))}
+            <ul className="space-y-1 px-4">
+              {visibleItems.filter(i => i.category === category).map(item => {
+                const isActive = currentView === item.id;
+                return (
+                  <li key={item.id}>
+                    <button
+                      onClick={() => setView(item.id)}
+                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 group ${
+                        isActive 
+                          ? 'bg-primary-600 text-white shadow-lg shadow-primary-900/20' 
+                          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                      }`}
+                    >
+                      <item.icon size={18} className={isActive ? 'text-white' : 'text-slate-500 group-hover:text-slate-300'} />
+                      {item.label}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ))}
       </div>
       
-      {/* Current Role Display */}
-      <div className="p-4 border-t border-slate-700 text-xs text-slate-400">
-        Role: <span className="font-bold text-slate-200">{currentUser?.role}</span>
+      <div className="p-6 bg-slate-950/50 border-t border-slate-800">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-400 border border-slate-700">
+            {currentUser?.role.charAt(0)}
+          </div>
+          <div>
+            <p className="text-xs font-bold text-slate-200">{currentUser?.name}</p>
+            <p className="text-[10px] text-slate-500 font-medium">Role: {currentUser?.role}</p>
+          </div>
+        </div>
       </div>
     </div>
   );
