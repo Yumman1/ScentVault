@@ -110,11 +110,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
       <div className="p-6 bg-slate-950/50 border-t border-slate-800">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-400 border border-slate-700">
-            {currentUser?.role.charAt(0)}
+            {currentUser?.name?.charAt(0) || '?'}
           </div>
           <div>
-            <p className="text-xs font-bold text-slate-200">{currentUser?.name}</p>
-            <p className="text-[10px] text-slate-500 font-medium">Role: {currentUser?.role}</p>
+            <p className="text-xs font-bold text-slate-200">{currentUser?.name || 'Anonymous'}</p>
+            <p className="text-[10px] text-slate-500 font-medium">Role: {currentUser?.role || 'Guest'}</p>
           </div>
         </div>
       </div>

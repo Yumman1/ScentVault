@@ -89,11 +89,11 @@ export const PerfumeMasterForm = () => {
       name: perfume.name,
       code: perfume.code,
       supplierId: perfume.supplierId,
-      dosage: perfume.dosage.toString(),
-      priceUSD: perfume.priceUSD.toString(),
-      pricePKR: perfume.pricePKR.toString(),
-      lowStockAlert: perfume.lowStockAlert.toString(),
-      remarks: perfume.remarks
+      dosage: (perfume.dosage || 0).toString(),
+      priceUSD: (perfume.priceUSD || 0).toString(),
+      pricePKR: (perfume.pricePKR || 0).toString(),
+      lowStockAlert: (perfume.lowStockAlert || 0).toString(),
+      remarks: perfume.remarks || ''
     });
     setTags(perfume.olfactiveNotes || []);
     setEditingId(perfume.id);
@@ -173,7 +173,7 @@ export const PerfumeMasterForm = () => {
             <Button type="button" onClick={handleAddTag} variant="secondary">Add</Button>
           </div>
           <div className="flex flex-wrap gap-2">
-            {tags.map(tag => (
+            {(tags || []).map(tag => (
               <span key={tag} className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm flex items-center gap-1">
                 {tag}
                 <button type="button" onClick={() => removeTag(tag)} className="text-indigo-600 hover:text-indigo-900 font-bold">&times;</button>
@@ -221,13 +221,13 @@ export const PerfumeMasterForm = () => {
                             <td className="px-6 py-3">{getSupplierName(p.supplierId)}</td>
                             <td className="px-6 py-3">
                               <div className="flex flex-wrap gap-1">
-                                {p.olfactiveNotes.map((note, idx) => (
+                                {(p.olfactiveNotes || []).map((note, idx) => (
                                   <span key={idx} className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full">{note}</span>
                                 ))}
                               </div>
                             </td>
                             <td className="px-6 py-3 text-right">{p.dosage}%</td>
-                            <td className="px-6 py-3 text-right">${p.priceUSD.toFixed(2)}</td>
+                            <td className="px-6 py-3 text-right">${(p.priceUSD || 0).toFixed(2)}</td>
                             <td className="px-6 py-3 text-right">
                                 <button onClick={() => handleEdit(p)} className="text-indigo-600 hover:text-indigo-900 font-medium flex items-center gap-1 justify-end w-full">
                                     <Pencil size={14}/> Edit

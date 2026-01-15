@@ -35,7 +35,6 @@ export const ReportsView = () => {
   const [filterSubLocation, setFilterSubLocation] = useState('');
   const [filterSupplier, setFilterSupplier] = useState('');
   const [filterOlfactive, setFilterOlfactive] = useState('');
-  const [filterType, setFilterType] = useState('');
   
   // Price Filter States
   const [filterPriceUSDMin, setFilterPriceUSDMin] = useState('');
@@ -55,13 +54,12 @@ export const ReportsView = () => {
     setFilterSubLocation('');
     setFilterSupplier('');
     setFilterOlfactive('');
-    setFilterType('');
     setFilterPriceUSDMin('');
     setFilterPriceUSDMax('');
   };
 
   const hasActiveFilters = !!(
-    filterLocation || filterSubLocation || filterSupplier || filterOlfactive || filterType ||
+    filterLocation || filterSubLocation || filterSupplier || filterOlfactive ||
     filterPriceUSDMin || filterPriceUSDMax
   );
 
@@ -101,12 +99,15 @@ export const ReportsView = () => {
       const primaryBatch = batchEntries[0]?.batch || '-';
       const activeBatches = batchEntries.map(b => b.batch).sort().join(', ');
 
+      // Filter logic
       if (filterSupplier && p.supplierId !== filterSupplier) return null;
-      if (filterOlfactive && (!p.olfactiveNotes || !p.olfactiveNotes.includes(filterOlfactive))) return null;
+      if (filterOlfactive && (!(p.olfactiveNotes || []).includes(filterOlfactive))) return null;
       if (!checkPriceFilter(p.priceUSD)) return null;
 
-      const isLowStock = totalWeight <= p.lowStockAlert;
-      const isCritical = totalWeight <= (p.lowStockAlert * 0.5);
+      const isLowStock = totalWeight <= (p.lowStockAlert || 0);
+      const isCritical = totalWeight <= ((p.lowStockAlert || 0) * 0.5);
+
+      if (activeTab === 'low-stock' && !isLowStock) return null;
 
       return {
         id: p.id,
@@ -133,16 +134,8 @@ export const ReportsView = () => {
   }, [
       perfumes, suppliers, getPerfumeStockBreakdown, filterLocation, filterSubLocation, 
       filterSupplier, filterOlfactive, searchTerm, filterPriceUSDMin, filterPriceUSDMax,
-      allowedLocationIds, isLocationRestricted, canViewPrices
+      allowedLocationIds, isLocationRestricted, canViewPrices, activeTab
   ]);
-
-  const summaryMetrics = useMemo(() => {
-    return inventoryData.reduce((acc, item) => ({
-        usd: acc.usd + item.totalValueUSD,
-        pkr: acc.pkr + item.totalValuePKR,
-        weight: acc.weight + item.currentWeight
-    }), { usd: 0, pkr: 0, weight: 0 });
-  }, [inventoryData]);
 
   const exportPDF = () => {
     const doc = new jsPDF();
@@ -168,6 +161,28 @@ export const ReportsView = () => {
         styles: { fontSize: 8 }
     });
     doc.save(`${title.toLowerCase().replace(' ', '_')}.pdf`);
+  };
+
+  const exportExcel = () => {
+    const title = activeTab === 'inventory' ? 'Inventory_Summary' : activeTab === 'low-stock' ? 'Low_Stock_Alert' : 'Transaction_History';
+    
+    const data = inventoryData.map(r => ({
+      'Code': r.code,
+      'Name': r.name,
+      'Supplier': r.supplierName,
+      'Primary Batch': r.primaryBatch,
+      'Total Weight (KG)': r.currentWeight.toFixed(2),
+      'Status': r.isCritical ? 'CRITICAL' : r.isLowStock ? 'LOW' : 'OK',
+      ...(canViewPrices ? {
+        'Price (USD)': r.unitPriceUSD.toFixed(2),
+        'Valuation (USD)': r.totalValueUSD.toFixed(2)
+      } : {})
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Inventory");
+    XLSX.writeFile(workbook, `ScentVault_${title}_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   const renderDrillDown = () => {
@@ -318,7 +333,7 @@ export const ReportsView = () => {
             <Button variant="outline" onClick={exportPDF} className="flex items-center gap-2 bg-white h-12 px-6 rounded-2xl shadow-sm border-slate-200 hover:border-indigo-500 transition-all font-bold text-slate-700">
                 <FileDown size={18} /> Export PDF
             </Button>
-            <Button onClick={() => {}} className="flex items-center gap-2 h-12 px-6 rounded-2xl shadow-lg shadow-indigo-500/20 font-bold">
+            <Button onClick={exportExcel} className="flex items-center gap-2 h-12 px-6 rounded-2xl shadow-lg shadow-indigo-500/20 font-bold">
                 <FileSpreadsheet size={18} /> Excel Report
             </Button>
         </div>

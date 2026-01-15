@@ -63,7 +63,7 @@ interface DashboardProps {
 
 const Dashboard: React.FC<DashboardProps> = ({ setView, searchTerm }) => {
   const { 
-    perfumes, suppliers, gateInLogs, gateOutLogs, hasPermission, currentUser, getPerfumeStockBreakdown
+    perfumes, suppliers, hasPermission, currentUser, getPerfumeStockBreakdown
   } = useInventory();
 
   const isOperator = currentUser?.role === UserRole.Operator;
@@ -71,13 +71,12 @@ const Dashboard: React.FC<DashboardProps> = ({ setView, searchTerm }) => {
   const stats = useMemo(() => {
     let totalWeight = 0;
     let lowStock = 0;
-    const stockMap: Record<string, number> = {};
 
     perfumes.forEach(p => {
         const breakdown = getPerfumeStockBreakdown(p.id);
         const weight = breakdown.reduce((acc, b) => acc + b.weight, 0);
         totalWeight += weight;
-        if (weight <= p.lowStockAlert) lowStock++;
+        if (weight <= (p.lowStockAlert || 0)) lowStock++;
     });
 
     return { totalWeight, lowStock, totalItems: perfumes.length };
@@ -86,8 +85,8 @@ const Dashboard: React.FC<DashboardProps> = ({ setView, searchTerm }) => {
   const filteredPerfumes = useMemo(() => {
     return perfumes
         .filter(p => 
-            p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-            p.code.toLowerCase().includes(searchTerm.toLowerCase())
+            (p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+            (p.code || '').toLowerCase().includes(searchTerm.toLowerCase())
         )
         .slice(0, 5);
   }, [perfumes, searchTerm]);
@@ -99,7 +98,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setView, searchTerm }) => {
           <h2 className="text-5xl font-black text-slate-900 tracking-tighter">Command Center</h2>
           <p className="text-slate-500 mt-2 font-bold flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-            System running optimally as <span className="text-indigo-600 font-black">{currentUser?.role}</span>
+            System running optimally as <span className="text-indigo-600 font-black">{currentUser?.role || 'User'}</span>
           </p>
         </div>
       </div>
@@ -151,7 +150,8 @@ const Dashboard: React.FC<DashboardProps> = ({ setView, searchTerm }) => {
             {filteredPerfumes.map(p => {
                 const breakdown = getPerfumeStockBreakdown(p.id);
                 const stock = breakdown.reduce((acc, b) => acc + b.weight, 0);
-                const pct = Math.min((stock / (p.lowStockAlert * 3)) * 100, 100);
+                const alertThreshold = p.lowStockAlert || 1;
+                const pct = Math.min((stock / (alertThreshold * 3)) * 100, 100);
                 return (
                     <div key={p.id} className="group cursor-pointer" onClick={() => setView('reports')}>
                         <div className="flex justify-between items-end mb-3">
@@ -162,7 +162,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setView, searchTerm }) => {
                             <span className="font-mono font-black text-slate-500 bg-slate-100 px-3 py-1 rounded-xl">{stock.toFixed(1)} kg</span>
                         </div>
                         <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden shadow-inner">
-                            <div className={`h-full transition-all duration-1000 ${stock <= p.lowStockAlert ? 'bg-rose-500' : 'bg-indigo-500'}`} style={{ width: `${pct}%` }}></div>
+                            <div className={`h-full transition-all duration-1000 ${stock <= alertThreshold ? 'bg-rose-500' : 'bg-indigo-500'}`} style={{ width: `${pct}%` }}></div>
                         </div>
                     </div>
                 );
@@ -307,11 +307,11 @@ const AppContent = () => {
                     className="flex items-center gap-4 bg-white hover:bg-slate-50 transition-all pl-1.5 pr-5 py-1.5 rounded-2xl border border-slate-200 group shadow-sm"
                  >
                      <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center text-white font-black text-sm shadow-xl">
-                         {currentUser?.name.charAt(0)}
+                         {currentUser?.name?.charAt(0) || '?'}
                      </div>
                      <div className="text-left">
-                         <p className="text-sm font-black text-slate-900 leading-none">{currentUser?.name}</p>
-                         <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">{currentUser?.role}</p>
+                         <p className="text-sm font-black text-slate-900 leading-none">{currentUser?.name || 'User'}</p>
+                         <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">{currentUser?.role || 'Guest'}</p>
                      </div>
                      <ChevronDown size={16} className="text-slate-300 group-hover:text-indigo-600 transition-all" />
                  </button>
@@ -328,10 +328,10 @@ const AppContent = () => {
                                 className={`w-full text-left px-5 py-3.5 text-sm flex items-center gap-4 hover:bg-slate-50 transition-all ${currentUser?.id === u.id ? 'bg-indigo-50/50' : ''}`}
                              >
                                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black ${currentUser?.id === u.id ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-500'}`}>
-                                     {u.name.charAt(0)}
+                                     {u.name?.charAt(0) || '?'}
                                  </div>
                                  <div className="flex-1">
-                                     <p className={`font-black ${currentUser?.id === u.id ? 'text-indigo-700' : 'text-slate-700'}`}>{u.name}</p>
+                                     <p className={`font-black ${currentUser?.id === u.id ? 'text-indigo-700' : 'text-slate-700'}`}>{u.name || 'Anonymous'}</p>
                                      <p className="text-[10px] text-slate-400 font-bold uppercase">{u.role}</p>
                                  </div>
                                  {currentUser?.id === u.id && <CheckCircle2 size={16} className="text-indigo-600" />}

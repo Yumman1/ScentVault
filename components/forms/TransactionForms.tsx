@@ -4,7 +4,7 @@ import { GateInLog, GateOutLog, StockTransferLog, GateOutUsage } from '../../typ
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { Button } from '../ui/Button';
-import { Pencil, Trash2, X, PlusCircle, History, ArrowRight, MapPin, Package, ArrowRightLeft } from 'lucide-react';
+import { Pencil, Trash2, X, PlusCircle, History, ArrowRight, MapPin, Package, ArrowRightLeft, AlertTriangle } from 'lucide-react';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -63,7 +63,6 @@ export const GateInForm = () => {
   const { qty, weight, handleQtyChange, handleWeightChange, setQty, setWeight } = useCyclicalWeight(selectedPackingTypeId, packingTypes);
 
   const selectedPerfume = perfumes.find(p => p.id === selectedPerfumeId);
-  const supplier = selectedPerfume ? suppliers.find(s => s.id === selectedPerfume.supplierId) : null;
   const subLocations = useMemo(() => mainLocId ? getSubLocations(mainLocId) : [], [mainLocId, getSubLocations]);
   const canViewPrices = hasPermission('view_prices');
 
@@ -81,7 +80,7 @@ export const GateInForm = () => {
       id: editingId || generateId(),
       date, perfumeId: selectedPerfumeId, importReference: importRef,
       packingTypeId: selectedPackingTypeId, packingQty: Number(qty), netWeight: Number(weight),
-      mainLocationId: mainLocId, subLocationId: subLocId, supplierInvoice: invoice, remarks,
+      mainLocationId: mainLocId, subLocationId: subLocId || undefined, supplierInvoice: invoice, remarks,
       priceUSD: priceUSD ? Number(priceUSD) : undefined,
       pricePKR: pricePKR ? Number(pricePKR) : undefined
     };
@@ -267,16 +266,26 @@ export const GateOutForm = () => {
   const { qty, weight, handleQtyChange, handleWeightChange, setQty, setWeight } = useCyclicalWeight(selectedPackingTypeId, packingTypes);
 
   const availableBatches = useMemo(() => {
-    return getBatchStock(selectedPerfumeId, mainLocId, editingId || undefined);
-  }, [selectedPerfumeId, mainLocId, editingId, getBatchStock]);
+    return getBatchStock(selectedPerfumeId, mainLocId, subLocId || undefined, editingId || undefined);
+  }, [selectedPerfumeId, mainLocId, subLocId, editingId, getBatchStock]);
+
+  const subLocations = useMemo(() => mainLocId ? getSubLocations(mainLocId) : [], [mainLocId, getSubLocations]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // VALIDATION: Check stock availability
+    const selectedBatch = availableBatches.find(b => b.batch === batchNumber);
+    if (!selectedBatch || Number(weight) > selectedBatch.weight) {
+        alert(`Insufficient Stock! Available: ${selectedBatch?.weight.toFixed(2) || 0} kg. Requested: ${Number(weight).toFixed(2)} kg.`);
+        return;
+    }
+
     const logData: GateOutLog = {
       id: editingId || generateId(),
       date, perfumeId: selectedPerfumeId, packingTypeId: selectedPackingTypeId, 
       packingQty: Number(qty), netWeight: Number(weight), mainLocationId: mainLocId, 
-      subLocationId: subLocId, usage, customerId: usage === GateOutUsage.Sale ? customerId : undefined, 
+      subLocationId: subLocId || undefined, usage, customerId: usage === GateOutUsage.Sale ? customerId : undefined, 
       remarks, batchNumber
     };
 
@@ -296,11 +305,11 @@ export const GateOutForm = () => {
       setDate(log.date);
       setSelectedPerfumeId(log.perfumeId);
       setMainLocId(log.mainLocationId);
+      setSubLocId(log.subLocationId || '');
       setBatchNumber(log.batchNumber);
       setSelectedPackingTypeId(log.packingTypeId);
       setQty(log.packingQty.toString());
       setWeight(log.netWeight.toString());
-      setSubLocId(log.subLocationId || '');
       setUsage(log.usage);
       setCustomerId(log.customerId || '');
       setRemarks(log.remarks);
@@ -341,16 +350,25 @@ export const GateOutForm = () => {
                         onChange={e => { setSelectedPerfumeId(e.target.value); setBatchNumber(''); }}
                         required
                     />
-                    <Select 
-                        label="From Location"
-                        options={getMainLocations().map(l => ({ value: l.id, label: l.name }))}
-                        value={mainLocId}
-                        onChange={e => { setMainLocId(e.target.value); setBatchNumber(''); }}
-                        required
-                    />
+                    <div className="grid grid-cols-2 gap-3">
+                        <Select 
+                            label="From Location"
+                            options={getMainLocations().map(l => ({ value: l.id, label: l.name }))}
+                            value={mainLocId}
+                            onChange={e => { setMainLocId(e.target.value); setSubLocId(''); setBatchNumber(''); }}
+                            required
+                        />
+                        <Select 
+                            label="Sub Location"
+                            options={subLocations.map(l => ({ value: l.id, label: l.name }))}
+                            value={subLocId}
+                            onChange={e => { setSubLocId(e.target.value); setBatchNumber(''); }}
+                            disabled={!mainLocId}
+                        />
+                    </div>
                     <Select 
                         label="Available Batch"
-                        options={availableBatches.map(b => ({ value: b.batch, label: `${b.batch} (${b.weight.toFixed(2)} kg available)` }))}
+                        options={availableBatches.map(b => ({ value: b.batch, label: `${b.batch} (${b.weight.toFixed(2)} kg here)` }))}
                         value={batchNumber}
                         onChange={e => {
                             setBatchNumber(e.target.value);
@@ -459,8 +477,8 @@ export const StockTransferForm = () => {
   const { qty, weight, handleQtyChange, handleWeightChange, setQty, setWeight } = useCyclicalWeight(selectedPackingTypeId, packingTypes);
 
   const availableBatches = useMemo(() => {
-    return getBatchStock(selectedPerfumeId, fromMainLocId, editingId || undefined);
-  }, [selectedPerfumeId, fromMainLocId, editingId, getBatchStock]);
+    return getBatchStock(selectedPerfumeId, fromMainLocId, fromSubLocId || undefined, editingId || undefined);
+  }, [selectedPerfumeId, fromMainLocId, fromSubLocId, editingId, getBatchStock]);
 
   const fromSubLocations = useMemo(() => fromMainLocId ? getSubLocations(fromMainLocId) : [], [fromMainLocId, getSubLocations]);
   const toSubLocations = useMemo(() => toMainLocId ? getSubLocations(toMainLocId) : [], [toMainLocId, getSubLocations]);
@@ -473,12 +491,19 @@ export const StockTransferForm = () => {
         return;
     }
 
+    // VALIDATION: Check stock availability at origin
+    const selectedBatch = availableBatches.find(b => b.batch === batchNumber);
+    if (!selectedBatch || Number(weight) > selectedBatch.weight) {
+        alert(`Transfer Blocked! Available at origin: ${selectedBatch?.weight.toFixed(2) || 0} kg. Requested: ${Number(weight).toFixed(2)} kg.`);
+        return;
+    }
+
     const logData: StockTransferLog = {
       id: editingId || generateId(),
       date, perfumeId: selectedPerfumeId, packingTypeId: selectedPackingTypeId, 
       packingQty: Number(qty), netWeight: Number(weight), 
-      fromMainLocationId: fromMainLocId, fromSubLocationId: fromSubLocId,
-      toMainLocationId: toMainLocId, toSubLocationId: toSubLocId,
+      fromMainLocationId: fromMainLocId, fromSubLocationId: fromSubLocId || undefined,
+      toMainLocationId: toMainLocId, toSubLocationId: toSubLocId || undefined,
       remarks, batchNumber
     };
 
@@ -563,14 +588,14 @@ export const StockTransferForm = () => {
                             label="From Sub Location"
                             options={fromSubLocations.map(l => ({ value: l.id, label: l.name }))}
                             value={fromSubLocId}
-                            onChange={e => setFromSubLocId(e.target.value)}
+                            onChange={e => { setFromSubLocId(e.target.value); setBatchNumber(''); }}
                             disabled={!fromMainLocId}
                         />
                     </div>
 
                     <Select 
                         label="Batch to Move"
-                        options={availableBatches.map(b => ({ value: b.batch, label: `${b.batch} (${b.weight.toFixed(2)} kg available)` }))}
+                        options={availableBatches.map(b => ({ value: b.batch, label: `${b.batch} (${b.weight.toFixed(2)} kg here)` }))}
                         value={batchNumber}
                         onChange={e => {
                             setBatchNumber(e.target.value);

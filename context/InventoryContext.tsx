@@ -61,7 +61,7 @@ interface InventoryContextType {
   hasPermission: (permission: 'view_prices' | 'manage_users' | 'manage_master_data') => boolean;
   
   // Refined Stock Helpers
-  getBatchStock: (perfumeId: string, locationId: string, excludeLogId?: string) => { batch: string; weight: number }[];
+  getBatchStock: (perfumeId: string, locationId: string, subLocationId?: string, excludeLogId?: string) => { batch: string; weight: number }[];
   getPerfumeStockBreakdown: (perfumeId: string) => StockPosition[];
   getPerfumeMovementHistory: (perfumeId: string) => any[];
 }
@@ -201,27 +201,27 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const getPerfumeStockBreakdown = useCallback((perfumeId: string): StockPosition[] => {
     const stockMap: Record<string, number> = {};
-    const normalize = (s: string) => (s || 'Unknown Batch').trim();
+    const normalizeBatch = (s: string) => (s || 'Unknown Batch').trim();
     
     const getKey = (main: string, sub: string, batch: string) => `${main}|${sub || ''}|${batch}`;
 
     gateInLogs.forEach(l => {
       if (l.perfumeId === perfumeId) {
-        const k = getKey(l.mainLocationId, l.subLocationId || '', normalize(l.importReference));
+        const k = getKey(l.mainLocationId, l.subLocationId || '', normalizeBatch(l.importReference));
         stockMap[k] = (stockMap[k] || 0) + Number(l.netWeight);
       }
     });
 
     gateOutLogs.forEach(l => {
       if (l.perfumeId === perfumeId) {
-        const k = getKey(l.mainLocationId, l.subLocationId || '', normalize(l.batchNumber));
+        const k = getKey(l.mainLocationId, l.subLocationId || '', normalizeBatch(l.batchNumber));
         stockMap[k] = (stockMap[k] || 0) - Number(l.netWeight);
       }
     });
 
     transferLogs.forEach(l => {
       if (l.perfumeId === perfumeId) {
-        const batch = normalize(l.batchNumber);
+        const batch = normalizeBatch(l.batchNumber);
         const fromKey = getKey(l.fromMainLocationId, l.fromSubLocationId || '', batch);
         const toKey = getKey(l.toMainLocationId, l.toSubLocationId || '', batch);
         
@@ -246,21 +246,29 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return history.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [gateInLogs, gateOutLogs, transferLogs]);
 
-  const getBatchStock = useCallback((perfumeId: string, locationId: string, excludeLogId?: string) => {
+  const getBatchStock = useCallback((perfumeId: string, mainLocId: string, subLocId?: string, excludeLogId?: string) => {
     const batchMap: Record<string, number> = {};
-    const normalize = (s: string) => (s || '').trim();
+    const normalizeBatch = (s: string) => (s || '').trim();
+
+    // Helper to check if location matches
+    const isTargetLoc = (mId: string, sId?: string) => {
+        if (mId !== mainLocId) return false;
+        // If subLocId is provided, it must match. If not, we aggregate over the main location.
+        if (subLocId && sId !== subLocId) return false;
+        return true;
+    };
 
     gateInLogs.forEach(l => {
-      if (l.perfumeId === perfumeId && l.mainLocationId === locationId) {
-        const b = normalize(l.importReference);
+      if (l.perfumeId === perfumeId && isTargetLoc(l.mainLocationId, l.subLocationId)) {
+        const b = normalizeBatch(l.importReference);
         if (b) batchMap[b] = (batchMap[b] || 0) + Number(l.netWeight);
       }
     });
 
     gateOutLogs.forEach(l => {
       if (l.id === excludeLogId) return;
-      if (l.perfumeId === perfumeId && l.mainLocationId === locationId) {
-        const b = normalize(l.batchNumber);
+      if (l.perfumeId === perfumeId && isTargetLoc(l.mainLocationId, l.subLocationId)) {
+        const b = normalizeBatch(l.batchNumber);
         if (b) batchMap[b] = (batchMap[b] || 0) - Number(l.netWeight);
       }
     });
@@ -268,10 +276,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     transferLogs.forEach(l => {
       if (l.id === excludeLogId) return;
       if (l.perfumeId === perfumeId) {
-        const b = normalize(l.batchNumber);
+        const b = normalizeBatch(l.batchNumber);
         if (b) {
-          if (l.fromMainLocationId === locationId) batchMap[b] = (batchMap[b] || 0) - Number(l.netWeight);
-          if (l.toMainLocationId === locationId) batchMap[b] = (batchMap[b] || 0) + Number(l.netWeight);
+          if (isTargetLoc(l.fromMainLocationId, l.fromSubLocationId)) {
+              batchMap[b] = (batchMap[b] || 0) - Number(l.netWeight);
+          }
+          if (isTargetLoc(l.toMainLocationId, l.toSubLocationId)) {
+              batchMap[b] = (batchMap[b] || 0) + Number(l.netWeight);
+          }
         }
       }
     });
