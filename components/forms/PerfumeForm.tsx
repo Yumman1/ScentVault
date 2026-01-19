@@ -9,7 +9,7 @@ import { Perfume } from '../../types';
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 export const PerfumeMasterForm = () => {
-  const { addPerfume, updatePerfume, perfumes, suppliers } = useInventory();
+  const { addPerfume, updatePerfume, perfumes, suppliers, olfactiveNotes, addOlfactiveNote } = useInventory();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,17 +22,19 @@ export const PerfumeMasterForm = () => {
   // Tag system state
   const [currentTag, setCurrentTag] = useState('');
   const [tags, setTags] = useState<string[]>([]);
-  // Simulated list of existing tags in the system
-  const [existingTags, setExistingTags] = useState<string[]>(['Fruity', 'Floral', 'Oud', 'Woody', 'Citrus']);
 
   const handleAddTag = () => {
     if (!currentTag.trim()) return;
-    if (!tags.includes(currentTag)) {
-      setTags([...tags, currentTag]);
-      // If tag is new to system, add to existing (simulation)
-      if (!existingTags.includes(currentTag)) {
-        setExistingTags([...existingTags, currentTag]);
-      }
+    const cleanTag = currentTag.trim();
+    
+    // Add to global list if not exists
+    if (!olfactiveNotes.includes(cleanTag)) {
+        addOlfactiveNote(cleanTag);
+    }
+    
+    // Add to local perfume selection
+    if (!tags.includes(cleanTag)) {
+      setTags([...tags, cleanTag]);
     }
     setCurrentTag('');
   };
@@ -45,7 +47,6 @@ export const PerfumeMasterForm = () => {
     e.preventDefault();
     setError(null);
 
-    // Validation: Check for duplicate code
     const duplicateCode = perfumes.find(p => 
       p.code.toLowerCase() === formData.code.toLowerCase() && p.id !== editingId
     );
@@ -77,7 +78,6 @@ export const PerfumeMasterForm = () => {
       alert('Perfume Added to Master List');
     }
     
-    // Reset
     setFormData(initialForm);
     setTags([]);
     setError(null);
@@ -161,22 +161,22 @@ export const PerfumeMasterForm = () => {
           <div className="flex gap-2 mb-2">
             <input 
               list="tag-suggestions"
-              className="flex-1 px-3 py-2 bg-white border border-gray-300 rounded-md"
+              className="flex-1 px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm outline-none focus:ring-2 focus:ring-indigo-500"
               value={currentTag}
               onChange={e => setCurrentTag(e.target.value)}
-              placeholder="Type or select a tag..."
+              placeholder="Type or select a managed note..."
               onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddTag())}
             />
             <datalist id="tag-suggestions">
-              {existingTags.map(tag => <option key={tag} value={tag} />)}
+              {olfactiveNotes.map(tag => <option key={tag} value={tag} />)}
             </datalist>
             <Button type="button" onClick={handleAddTag} variant="secondary">Add</Button>
           </div>
           <div className="flex flex-wrap gap-2">
             {(tags || []).map(tag => (
-              <span key={tag} className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+              <span key={tag} className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm flex items-center gap-1 font-semibold">
                 {tag}
-                <button type="button" onClick={() => removeTag(tag)} className="text-indigo-600 hover:text-indigo-900 font-bold">&times;</button>
+                <button type="button" onClick={() => removeTag(tag)} className="text-indigo-600 hover:text-indigo-900 font-bold ml-1">&times;</button>
               </span>
             ))}
           </div>
@@ -185,7 +185,7 @@ export const PerfumeMasterForm = () => {
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
           <textarea 
-            className="w-full px-3 py-2 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full px-3 py-2 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary shadow-sm"
             rows={3}
             value={formData.remarks}
             onChange={e => setFormData({ ...formData, remarks: e.target.value })}
@@ -222,7 +222,7 @@ export const PerfumeMasterForm = () => {
                             <td className="px-6 py-3">
                               <div className="flex flex-wrap gap-1">
                                 {(p.olfactiveNotes || []).map((note, idx) => (
-                                  <span key={idx} className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full">{note}</span>
+                                  <span key={idx} className="bg-gray-100 text-gray-600 text-[10px] px-2 py-0.5 rounded-full font-bold">{note}</span>
                                 ))}
                               </div>
                             </td>
@@ -235,7 +235,6 @@ export const PerfumeMasterForm = () => {
                             </td>
                         </tr>
                     ))}
-                    {perfumes.length === 0 && <tr><td colSpan={7} className="px-6 py-4 text-center text-gray-400">No perfumes defined.</td></tr>}
                 </tbody>
             </table>
         </div>

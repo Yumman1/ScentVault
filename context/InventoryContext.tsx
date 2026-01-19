@@ -18,6 +18,7 @@ interface InventoryContextType {
   packingTypes: PackingType[];
   locations: Location[];
   perfumes: Perfume[];
+  olfactiveNotes: string[];
   gateInLogs: GateInLog[];
   gateOutLogs: GateOutLog[];
   transferLogs: StockTransferLog[];
@@ -35,6 +36,11 @@ interface InventoryContextType {
   addPerfume: (p: Perfume) => void;
   updatePerfume: (id: string, p: Perfume) => void;
   
+  // Tag Management
+  addOlfactiveNote: (name: string) => void;
+  updateOlfactiveNote: (oldName: string, newName: string) => void;
+  deleteOlfactiveNote: (name: string) => void;
+
   addGateInLog: (l: GateInLog) => void;
   updateGateInLog: (id: string, l: GateInLog) => void;
   deleteGateInLog: (id: string) => void;
@@ -60,7 +66,6 @@ interface InventoryContextType {
   getSubLocations: (mainLocationId: string) => Location[];
   hasPermission: (permission: 'view_prices' | 'manage_users' | 'manage_master_data') => boolean;
   
-  // Refined Stock Helpers
   getBatchStock: (perfumeId: string, locationId: string, subLocationId?: string, excludeLogId?: string) => { batch: string; weight: number }[];
   getPerfumeStockBreakdown: (perfumeId: string) => StockPosition[];
   getPerfumeMovementHistory: (perfumeId: string) => any[];
@@ -88,6 +93,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [packingTypes, setPackingTypes] = useState<PackingType[]>(initial?.packingTypes || []);
   const [locations, setLocations] = useState<Location[]>(initial?.locations || []);
   const [perfumes, setPerfumes] = useState<Perfume[]>(initial?.perfumes || []);
+  const [olfactiveNotes, setOlfactiveNotes] = useState<string[]>(initial?.olfactiveNotes || ['Fruity', 'Floral', 'Oud', 'Woody', 'Citrus']);
   const [gateInLogs, setGateInLogs] = useState<GateInLog[]>(initial?.gateInLogs || []);
   const [gateOutLogs, setGateOutLogs] = useState<GateOutLog[]>(initial?.gateOutLogs || []);
   const [transferLogs, setTransferLogs] = useState<StockTransferLog[]>(initial?.transferLogs || []);
@@ -105,14 +111,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => {
     try {
       const dataToSave = {
-        suppliers, customers, packingTypes, locations, perfumes,
+        suppliers, customers, packingTypes, locations, perfumes, olfactiveNotes,
         gateInLogs, gateOutLogs, transferLogs, users, currentUser
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
     } catch (e) {
       console.error("Storage Error: Local storage might be full", e);
     }
-  }, [suppliers, customers, packingTypes, locations, perfumes, gateInLogs, gateOutLogs, transferLogs, users, currentUser]);
+  }, [suppliers, customers, packingTypes, locations, perfumes, olfactiveNotes, gateInLogs, gateOutLogs, transferLogs, users, currentUser]);
 
   const addSupplier = (s: Supplier) => setSuppliers(prev => [...prev, s]);
   const updateSupplier = (id: string, s: Supplier) => setSuppliers(prev => prev.map(item => item.id === id ? s : item));
@@ -124,6 +130,44 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const updateLocation = (id: string, l: Location) => setLocations(prev => prev.map(item => item.id === id ? l : item));
   const addPerfume = (p: Perfume) => setPerfumes(prev => [...prev, p]);
   const updatePerfume = (id: string, p: Perfume) => setPerfumes(prev => prev.map(item => item.id === id ? p : item));
+
+  // Note Management Logic with Cascading Updates
+  const addOlfactiveNote = (name: string) => {
+    const cleanName = name.trim();
+    if (!cleanName) return;
+    setOlfactiveNotes(prev => prev.includes(cleanName) ? prev : [...prev, cleanName].sort());
+  };
+
+  const updateOlfactiveNote = (oldName: string, newName: string) => {
+    const cleanNewName = newName.trim();
+    if (!cleanNewName || oldName === cleanNewName) return;
+
+    // Update Global Library
+    setOlfactiveNotes(prev => prev.map(n => n === oldName ? cleanNewName : n).sort());
+
+    // Cascade to Perfumes
+    setPerfumes(prev => prev.map(p => {
+      if ((p.olfactiveNotes || []).includes(oldName)) {
+        return {
+          ...p,
+          olfactiveNotes: p.olfactiveNotes.map(n => n === oldName ? cleanNewName : n)
+        };
+      }
+      return p;
+    }));
+  };
+
+  const deleteOlfactiveNote = (name: string) => {
+    // Remove from Library
+    setOlfactiveNotes(prev => prev.filter(n => n !== name));
+
+    // Remove from all Perfumes
+    setPerfumes(prev => prev.map(p => ({
+      ...p,
+      olfactiveNotes: (p.olfactiveNotes || []).filter(n => n !== name)
+    })));
+  };
+
   const addGateInLog = (l: GateInLog) => setGateInLogs(prev => [...prev, l]);
   const updateGateInLog = (id: string, l: GateInLog) => setGateInLogs(prev => prev.map(item => item.id === id ? l : item));
   const deleteGateInLog = (id: string) => setGateInLogs(prev => prev.filter(item => item.id !== id));
@@ -142,7 +186,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const exportDatabase = () => {
     const data = {
-        suppliers, customers, packingTypes, locations, perfumes,
+        suppliers, customers, packingTypes, locations, perfumes, olfactiveNotes,
         gateInLogs, gateOutLogs, transferLogs, users, currentUser,
         exportDate: new Date().toISOString()
     };
@@ -165,6 +209,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         if (data.packingTypes) setPackingTypes(data.packingTypes);
         if (data.locations) setLocations(data.locations);
         if (data.perfumes) setPerfumes(data.perfumes);
+        if (data.olfactiveNotes) setOlfactiveNotes(data.olfactiveNotes);
         if (data.gateInLogs) setGateInLogs(data.gateInLogs);
         if (data.gateOutLogs) setGateOutLogs(data.gateOutLogs);
         if (data.transferLogs) setTransferLogs(data.transferLogs);
@@ -181,6 +226,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setPackingTypes([]);
       setLocations([]);
       setPerfumes([]);
+      setOlfactiveNotes(['Fruity', 'Floral', 'Oud', 'Woody', 'Citrus']);
       setGateInLogs([]);
       setGateOutLogs([]);
       setTransferLogs([]);
@@ -202,7 +248,6 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const getPerfumeStockBreakdown = useCallback((perfumeId: string): StockPosition[] => {
     const stockMap: Record<string, number> = {};
     const normalizeBatch = (s: string) => (s || 'Unknown Batch').trim();
-    
     const getKey = (main: string, sub: string, batch: string) => `${main}|${sub || ''}|${batch}`;
 
     gateInLogs.forEach(l => {
@@ -224,7 +269,6 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const batch = normalizeBatch(l.batchNumber);
         const fromKey = getKey(l.fromMainLocationId, l.fromSubLocationId || '', batch);
         const toKey = getKey(l.toMainLocationId, l.toSubLocationId || '', batch);
-        
         stockMap[fromKey] = (stockMap[fromKey] || 0) - Number(l.netWeight);
         stockMap[toKey] = (stockMap[toKey] || 0) + Number(l.netWeight);
       }
@@ -250,10 +294,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const batchMap: Record<string, number> = {};
     const normalizeBatch = (s: string) => (s || '').trim();
 
-    // Helper to check if location matches
     const isTargetLoc = (mId: string, sId?: string) => {
         if (mId !== mainLocId) return false;
-        // If subLocId is provided, it must match. If not, we aggregate over the main location.
         if (subLocId && sId !== subLocId) return false;
         return true;
     };
@@ -278,12 +320,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (l.perfumeId === perfumeId) {
         const b = normalizeBatch(l.batchNumber);
         if (b) {
-          if (isTargetLoc(l.fromMainLocationId, l.fromSubLocationId)) {
-              batchMap[b] = (batchMap[b] || 0) - Number(l.netWeight);
-          }
-          if (isTargetLoc(l.toMainLocationId, l.toSubLocationId)) {
-              batchMap[b] = (batchMap[b] || 0) + Number(l.netWeight);
-          }
+          if (isTargetLoc(l.fromMainLocationId, l.fromSubLocationId)) batchMap[b] = (batchMap[b] || 0) - Number(l.netWeight);
+          if (isTargetLoc(l.toMainLocationId, l.toSubLocationId)) batchMap[b] = (batchMap[b] || 0) + Number(l.netWeight);
         }
       }
     });
@@ -296,13 +334,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   return (
     <InventoryContext.Provider value={{
-      suppliers, customers, packingTypes, locations, perfumes,
+      suppliers, customers, packingTypes, locations, perfumes, olfactiveNotes,
       gateInLogs, gateOutLogs, transferLogs, users, currentUser,
       addSupplier, updateSupplier,
       addCustomer, updateCustomer,
       addPackingType, updatePackingType,
       addLocation, updateLocation,
       addPerfume, updatePerfume,
+      addOlfactiveNote, updateOlfactiveNote, deleteOlfactiveNote,
       addGateInLog, updateGateInLog, deleteGateInLog,
       addGateOutLog, updateGateOutLog, deleteGateOutLog,
       addTransferLog, updateTransferLog, deleteTransferLog,

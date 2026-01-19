@@ -15,6 +15,7 @@ import {
   StockTransferForm 
 } from './components/forms/TransactionForms';
 import { ReportsView } from './components/reports/ReportsView';
+import { TagsSettings } from './components/settings/TagsSettings';
 import { DatabaseSettings } from './components/settings/DatabaseSettings';
 import { 
   DollarSign, 
@@ -240,6 +241,7 @@ const AppContent = () => {
     switch(currentView) {
       case 'dashboard': return <Dashboard setView={setCurrentView} searchTerm={dashboardSearch} />;
       case 'reports': return <ReportsView />;
+      case 'tags': return <TagsSettings />;
       case 'gate-in': 
         if (isViewer) return <Dashboard setView={setCurrentView} searchTerm={dashboardSearch} />;
         return <div className="p-10"><GateInForm /></div>;

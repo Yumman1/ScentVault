@@ -10,7 +10,8 @@ import {
   ArrowRightLeft,
   FileText,
   ShieldCheck,
-  Database
+  Database,
+  Tag
 } from 'lucide-react';
 import { useInventory } from '../context/InventoryContext';
 import { UserRole } from '../types';
@@ -30,6 +31,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
     
     // Master Data
     { id: 'perfumes', label: 'Perfume Master', icon: FlaskConical, category: 'Master Data' },
+    { id: 'tags', label: 'Olfactive Notes', icon: Tag, category: 'Master Data' },
     { id: 'suppliers', label: 'Suppliers', icon: Users, category: 'Master Data' },
     { id: 'customers', label: 'Customers', icon: Users, category: 'Master Data' },
     { id: 'packing', label: 'Packing Types', icon: Package, category: 'Master Data' },
