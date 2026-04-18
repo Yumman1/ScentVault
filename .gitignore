@@ -12,6 +12,18 @@ dist
 dist-ssr
 *.local
 
+# Environment variables
+.env
+.env.local
+.env.production
+.env.*.local
+.env.test
+
+# Test artifacts
+playwright-report/
+test-results/
+coverage/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -22,3 +34,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Development artifacts
+ts_error.txt
+metadata.json
+
+# Supabase local
+.supabase/

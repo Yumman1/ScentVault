@@ -129,3 +129,63 @@ export interface User {
   role: UserRole;
   permissions?: UserPermissions; // Primarily for Viewers
 }
+
+export type MovementType = 'IN' | 'OUT' | 'TRANSFER';
+
+export interface MovementHistoryItem {
+  id: string;
+  date: string;
+  perfumeId: string;
+  packingTypeId: string;
+  packingQty: number;
+  netWeight: number;
+  type: MovementType;
+  mainLocationId?: string;
+  subLocationId?: string;
+  fromMainLocationId?: string;
+  fromSubLocationId?: string;
+  toMainLocationId?: string;
+  toSubLocationId?: string;
+  remarks: string;
+  batchNumber?: string;
+  importReference?: string;
+  supplierInvoice?: string;
+  usage?: GateOutUsage;
+  customerId?: string;
+  priceUSD?: number;
+  pricePKR?: number;
+}
+
+// --- AUDIT & SYSTEM TYPES ---
+
+export enum AuditAction {
+  Create = 'CREATE',
+  Update = 'UPDATE',
+  Delete = 'DELETE',
+  Undo = 'UNDO'
+}
+
+export enum AuditEntity {
+  Supplier = 'SUPPLIER',
+  Customer = 'CUSTOMER',
+  Perfume = 'PERFUME',
+  Location = 'LOCATION',
+  PackingType = 'PACKING_TYPE',
+  GateIn = 'GATE_IN',
+  GateOut = 'GATE_OUT',
+  Transfer = 'TRANSFER',
+  User = 'USER',
+  OlfactiveNote = 'OLFACTIVE_NOTE'
+}
+
+export interface AuditEntry {
+  id: string;
+  timestamp: string;
+  userId: string;
+  userName: string;
+  action: AuditAction;
+  entity: AuditEntity;
+  entityId: string;
+  details: string;
+  previousState?: string; // JSON string of state before change
+}

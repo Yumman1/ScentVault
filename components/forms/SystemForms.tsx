@@ -4,15 +4,17 @@ import { SupplierType, LocationType, Supplier, Customer, PackingType, Location }
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { Button } from '../ui/Button';
-import { Pencil, X } from 'lucide-react';
+import { Pencil, Trash2, X } from 'lucide-react';
+import { ConfirmationModal } from '../ui/ConfirmationModal';
 
 // Simple ID generator
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 // --- SUPPLIER FORM ---
 export const SupplierForm = () => {
-  const { suppliers, addSupplier, updateSupplier } = useInventory();
+  const { suppliers, addSupplier, updateSupplier, deleteSupplier } = useInventory();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   
   const initialForm = { name: '', contactPerson: '', type: SupplierType.Local, phone: '', email: '' };
   const [formData, setFormData] = useState(initialForm);
@@ -41,10 +43,11 @@ export const SupplierForm = () => {
   };
 
   return (
+    <>
     <div className="space-y-8">
-      <form onSubmit={handleSubmit} className="p-6 bg-white rounded-lg shadow-sm border border-gray-200">
+      <form onSubmit={handleSubmit} className="p-6 bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 transition-colors">
         <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-bold text-gray-800">{editingId ? 'Edit Supplier' : 'New Supplier'}</h3>
+            <h3 className="text-lg font-bold text-gray-800 dark:text-white">{editingId ? 'Edit Supplier' : 'New Supplier'}</h3>
             {editingId && <Button type="button" variant="secondary" onClick={handleCancel} className="text-xs flex items-center gap-1"><X size={14}/> Cancel Edit</Button>}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -65,11 +68,11 @@ export const SupplierForm = () => {
       </form>
 
       {/* List */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <h3 className="px-6 py-4 border-b border-gray-100 font-medium text-gray-700 bg-gray-50">Registered Suppliers</h3>
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden transition-colors">
+        <h3 className="px-6 py-4 border-b border-gray-100 dark:border-slate-700 font-medium text-gray-700 dark:text-slate-200 bg-gray-50 dark:bg-slate-900/50">Registered Suppliers</h3>
         <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left text-gray-700">
-                <thead className="text-xs text-gray-500 uppercase bg-gray-50 border-b">
+            <table className="w-full text-sm text-left text-gray-700 dark:text-slate-300">
+                <thead className="text-xs text-gray-500 dark:text-slate-400 uppercase bg-gray-50 dark:bg-slate-900 border-b dark:border-slate-700">
                     <tr>
                         <th className="px-6 py-3">Name</th>
                         <th className="px-6 py-3">Type</th>
@@ -79,19 +82,24 @@ export const SupplierForm = () => {
                         <th className="px-6 py-3 text-right">Action</th>
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
                     {suppliers.map(s => (
-                        <tr key={s.id} className="hover:bg-gray-50">
-                            <td className="px-6 py-3 font-medium text-gray-900">{s.name}</td>
+                        <tr key={s.id} className="hover:bg-gray-50 dark:hover:bg-slate-900/50 transition-colors">
+                            <td className="px-6 py-3 font-medium text-gray-900 dark:text-white">{s.name}</td>
                             <td className="px-6 py-3"><span className="bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full">{s.type}</span></td>
                             <td className="px-6 py-3">{s.contactPerson}</td>
                             <td className="px-6 py-3">{s.phone}</td>
                             <td className="px-6 py-3">{s.email}</td>
-                            <td className="px-6 py-3 text-right">
-                                <button onClick={() => handleEdit(s)} className="text-indigo-600 hover:text-indigo-900 font-medium flex items-center gap-1 justify-end w-full">
-                                    <Pencil size={14}/> Edit
-                                </button>
-                            </td>
+                             <td className="px-6 py-3 text-right">
+                                <div className="flex justify-end gap-3">
+                                    <button onClick={() => handleEdit(s)} className="text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 font-bold flex items-center gap-1 group">
+                                        <Pencil size={14} className="group-hover:scale-110 transition-transform"/> Edit
+                                    </button>
+                                    <button onClick={() => setDeleteTarget(s.id)} className="text-rose-500 hover:text-rose-700 font-bold flex items-center gap-1 group">
+                                        <Trash2 size={14} className="group-hover:scale-110 transition-transform"/> Delete
+                                    </button>
+                                </div>
+                             </td>
                         </tr>
                     ))}
                     {suppliers.length === 0 && <tr><td colSpan={6} className="px-6 py-4 text-center text-gray-400">No suppliers found.</td></tr>}
@@ -100,6 +108,20 @@ export const SupplierForm = () => {
         </div>
       </div>
     </div>
+    <ConfirmationModal 
+      isOpen={!!deleteTarget}
+      title="Delete Supplier Record"
+      message="This will permanently remove this supplier from the system. This can ONLY be performed if there are no perfumes linked to this supplier."
+      confirmText="Delete Supplier"
+      type="danger"
+      onConfirm={() => {
+        if (deleteSupplier(deleteTarget!)) {
+          setDeleteTarget(null);
+        }
+      }}
+      onCancel={() => setDeleteTarget(null)}
+    />
+    </>
   );
 };
 
@@ -136,9 +158,9 @@ export const CustomerForm = () => {
 
   return (
     <div className="space-y-8">
-      <form onSubmit={handleSubmit} className="p-6 bg-white rounded-lg shadow-sm border border-gray-200">
+      <form onSubmit={handleSubmit} className="p-6 bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 transition-colors">
         <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-bold text-gray-800">{editingId ? 'Edit Customer' : 'New Customer'}</h3>
+            <h3 className="text-lg font-bold text-gray-800 dark:text-white">{editingId ? 'Edit Customer' : 'New Customer'}</h3>
             {editingId && <Button type="button" variant="secondary" onClick={handleCancel} className="text-xs flex items-center gap-1"><X size={14}/> Cancel Edit</Button>}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -153,11 +175,11 @@ export const CustomerForm = () => {
       </form>
 
       {/* List */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <h3 className="px-6 py-4 border-b border-gray-100 font-medium text-gray-700 bg-gray-50">Registered Customers</h3>
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden transition-colors">
+        <h3 className="px-6 py-4 border-b border-gray-100 dark:border-slate-700 font-medium text-gray-700 dark:text-slate-200 bg-gray-50 dark:bg-slate-900/50">Registered Customers</h3>
         <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left text-gray-700">
-                <thead className="text-xs text-gray-500 uppercase bg-gray-50 border-b">
+            <table className="w-full text-sm text-left text-gray-700 dark:text-slate-300">
+                <thead className="text-xs text-gray-500 dark:text-slate-400 uppercase bg-gray-50 dark:bg-slate-900 border-b dark:border-slate-700">
                     <tr>
                         <th className="px-6 py-3">Name</th>
                         <th className="px-6 py-3">Address</th>
@@ -166,15 +188,15 @@ export const CustomerForm = () => {
                         <th className="px-6 py-3 text-right">Action</th>
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
                     {customers.map(c => (
-                        <tr key={c.id} className="hover:bg-gray-50">
-                            <td className="px-6 py-3 font-medium text-gray-900">{c.name}</td>
+                        <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-slate-900/50 transition-colors">
+                            <td className="px-6 py-3 font-medium text-gray-900 dark:text-white">{c.name}</td>
                             <td className="px-6 py-3">{c.address}</td>
                             <td className="px-6 py-3">{c.phone}</td>
                             <td className="px-6 py-3">{c.email}</td>
                             <td className="px-6 py-3 text-right">
-                                <button onClick={() => handleEdit(c)} className="text-indigo-600 hover:text-indigo-900 font-medium flex items-center gap-1 justify-end w-full">
+                                <button onClick={() => handleEdit(c)} className="text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 font-bold flex items-center gap-1 justify-end w-full">
                                     <Pencil size={14}/> Edit
                                 </button>
                             </td>
@@ -194,14 +216,13 @@ export const PackingTypeForm = () => {
   const { packingTypes, addPackingType, updatePackingType } = useInventory();
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const initialForm = { name: '', description: '', qtyPerPacking: '' };
+  const initialForm = { name: '', qtyPerPacking: '' };
   const [formData, setFormData] = useState(initialForm);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const data = {
         name: formData.name, 
-        description: formData.description, 
         qtyPerPacking: Number(formData.qtyPerPacking)
     };
 
@@ -219,7 +240,6 @@ export const PackingTypeForm = () => {
   const handleEdit = (item: PackingType) => {
     setFormData({
         name: item.name,
-        description: item.description,
         qtyPerPacking: item.qtyPerPacking.toString()
     });
     setEditingId(item.id);
@@ -232,14 +252,13 @@ export const PackingTypeForm = () => {
 
   return (
     <div className="space-y-8">
-      <form onSubmit={handleSubmit} className="p-6 bg-white rounded-lg shadow-sm border border-gray-200">
+      <form onSubmit={handleSubmit} className="p-6 bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 transition-colors">
         <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-bold text-gray-800">{editingId ? 'Edit Packing Type' : 'New Packing Type'}</h3>
+            <h3 className="text-lg font-bold text-gray-800 dark:text-white">{editingId ? 'Edit Packing Type' : 'New Packing Type'}</h3>
             {editingId && <Button type="button" variant="secondary" onClick={handleCancel} className="text-xs flex items-center gap-1"><X size={14}/> Cancel Edit</Button>}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Input label="Packing Type Name" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required />
-          <Input label="Description" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
           <Input 
             label="Qty per Packing" 
             type="number" 
@@ -255,32 +274,30 @@ export const PackingTypeForm = () => {
       </form>
 
       {/* List */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <h3 className="px-6 py-4 border-b border-gray-100 font-medium text-gray-700 bg-gray-50">Registered Packing Types</h3>
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden transition-colors">
+        <h3 className="px-6 py-4 border-b border-gray-100 dark:border-slate-700 font-medium text-gray-700 dark:text-slate-200 bg-gray-50 dark:bg-slate-900/50">Registered Packing Types</h3>
         <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left text-gray-700">
-                <thead className="text-xs text-gray-500 uppercase bg-gray-50 border-b">
+            <table className="w-full text-sm text-left text-gray-700 dark:text-slate-300">
+                <thead className="text-xs text-gray-500 dark:text-slate-400 uppercase bg-gray-50 dark:bg-slate-900 border-b dark:border-slate-700">
                     <tr>
                         <th className="px-6 py-3">Name</th>
-                        <th className="px-6 py-3">Description</th>
                         <th className="px-6 py-3">Standard Qty</th>
                         <th className="px-6 py-3 text-right">Action</th>
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
                     {packingTypes.map(p => (
-                        <tr key={p.id} className="hover:bg-gray-50">
-                            <td className="px-6 py-3 font-medium text-gray-900">{p.name}</td>
-                            <td className="px-6 py-3">{p.description}</td>
+                        <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-slate-900/50 transition-colors">
+                            <td className="px-6 py-3 font-medium text-gray-900 dark:text-white">{p.name}</td>
                             <td className="px-6 py-3 font-mono">{p.qtyPerPacking}</td>
                             <td className="px-6 py-3 text-right">
-                                <button onClick={() => handleEdit(p)} className="text-indigo-600 hover:text-indigo-900 font-medium flex items-center gap-1 justify-end w-full">
+                                <button onClick={() => handleEdit(p)} className="text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 font-bold flex items-center gap-1 justify-end w-full">
                                     <Pencil size={14}/> Edit
                                 </button>
                             </td>
                         </tr>
                     ))}
-                    {packingTypes.length === 0 && <tr><td colSpan={4} className="px-6 py-4 text-center text-gray-400">No packing types defined.</td></tr>}
+                    {packingTypes.length === 0 && <tr><td colSpan={3} className="px-6 py-4 text-center text-gray-400">No packing types defined.</td></tr>}
                 </tbody>
             </table>
         </div>
@@ -291,8 +308,9 @@ export const PackingTypeForm = () => {
 
 // --- LOCATION FORM ---
 export const LocationForm = () => {
-  const { locations, addLocation, updateLocation, getMainLocations } = useInventory();
+  const { locations, addLocation, updateLocation, deleteLocation, getMainLocations } = useInventory();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const initialForm = { name: '', type: LocationType.Main, parentId: '' };
   const [formData, setFormData] = useState(initialForm);
@@ -332,16 +350,12 @@ export const LocationForm = () => {
     setEditingId(null);
   };
 
-  const getParentName = (parentId?: string) => {
-      if (!parentId) return '-';
-      return locations.find(l => l.id === parentId)?.name || 'Unknown';
-  };
-
   return (
+    <>
     <div className="space-y-8">
-      <form onSubmit={handleSubmit} className="p-6 bg-white rounded-lg shadow-sm border border-gray-200">
+      <form onSubmit={handleSubmit} className="p-6 bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 transition-colors">
         <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-bold text-gray-800">{editingId ? 'Edit Location' : 'New Location'}</h3>
+            <h3 className="text-lg font-bold text-gray-800 dark:text-white">{editingId ? 'Edit Location' : 'New Location'}</h3>
             {editingId && <Button type="button" variant="secondary" onClick={handleCancel} className="text-xs flex items-center gap-1"><X size={14}/> Cancel Edit</Button>}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -368,11 +382,11 @@ export const LocationForm = () => {
       </form>
 
       {/* List */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <h3 className="px-6 py-4 border-b border-gray-100 font-medium text-gray-700 bg-gray-50">Registered Locations</h3>
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden transition-colors">
+        <h3 className="px-6 py-4 border-b border-gray-100 dark:border-slate-700 font-medium text-gray-700 dark:text-slate-200 bg-gray-50 dark:bg-slate-900/50">Registered Locations</h3>
         <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left text-gray-700">
-                <thead className="text-xs text-gray-500 uppercase bg-gray-50 border-b">
+            <table className="w-full text-sm text-left text-gray-700 dark:text-slate-300">
+                <thead className="text-xs text-gray-500 dark:text-slate-400 uppercase bg-gray-50 dark:bg-slate-900 border-b dark:border-slate-700">
                     <tr>
                         <th className="px-6 py-3">Name</th>
                         <th className="px-6 py-3">Type</th>
@@ -380,18 +394,51 @@ export const LocationForm = () => {
                         <th className="px-6 py-3 text-right">Action</th>
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
-                    {locations.map(l => (
-                        <tr key={l.id} className="hover:bg-gray-50">
-                            <td className="px-6 py-3 font-medium text-gray-900">{l.name}</td>
-                            <td className="px-6 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${l.type === LocationType.Main ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'}`}>{l.type}</span></td>
-                            <td className="px-6 py-3 text-gray-500">{getParentName(l.parentId)}</td>
-                            <td className="px-6 py-3 text-right">
-                                <button onClick={() => handleEdit(l)} className="text-indigo-600 hover:text-indigo-900 font-medium flex items-center gap-1 justify-end w-full">
-                                    <Pencil size={14}/> Edit
-                                </button>
-                            </td>
-                        </tr>
+                <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
+                    {mainLocations.map(main => (
+                        <React.Fragment key={main.id}>
+                            {/* Main Location Row */}
+                            <tr className="bg-gray-50/50 dark:bg-slate-900/20 hover:bg-gray-50 dark:hover:bg-slate-900/50 transition-colors">
+                                <td className="px-6 py-4 font-black text-gray-900 dark:text-white">{main.name}</td>
+                                <td className="px-6 py-4">
+                                    <span className="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400">Main Hub</span>
+                                </td>
+                                <td className="px-6 py-4 text-gray-400 font-bold text-[10px] uppercase tracking-tighter">-</td>
+                                <td className="px-6 py-4 text-right">
+                                    <div className="flex justify-end gap-3">
+                                        <button onClick={() => handleEdit(main)} className="text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 font-bold flex items-center gap-1 text-xs">
+                                            <Pencil size={12}/> Edit
+                                        </button>
+                                        <button onClick={() => setDeleteTarget(main.id)} className="text-rose-500 hover:text-rose-700 font-bold flex items-center gap-1 text-xs group">
+                                            <Trash2 size={12} className="group-hover:scale-110 transition-transform"/> Delete
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {/* Sub Locations under this Main */}
+                            {locations.filter(sub => sub.parentId === main.id).map(sub => (
+                                <tr key={sub.id} className="hover:bg-gray-50 dark:hover:bg-slate-900/50 transition-colors border-l-4 border-primary-500/20 dark:border-primary-500/10">
+                                    <td className="px-6 py-3 pl-12 font-medium text-gray-700 dark:text-slate-300 flex items-center gap-2">
+                                        <div className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" />
+                                        {sub.name}
+                                    </td>
+                                    <td className="px-6 py-3">
+                                        <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">Sub Zone</span>
+                                    </td>
+                                    <td className="px-6 py-3 text-gray-400 text-xs italic">{main.name}</td>
+                                    <td className="px-6 py-3 text-right">
+                                        <div className="flex justify-end gap-3">
+                                            <button onClick={() => handleEdit(sub)} className="text-slate-400 dark:text-slate-500 hover:text-primary-500 dark:hover:text-primary-400 font-bold flex items-center gap-1 text-xs">
+                                                <Pencil size={12}/> Edit
+                                            </button>
+                                            <button onClick={() => setDeleteTarget(sub.id)} className="text-rose-400 hover:text-rose-600 font-bold flex items-center gap-1 text-xs group">
+                                                <Trash2 size={12} className="group-hover:scale-110 transition-transform"/> Delete
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </React.Fragment>
                     ))}
                     {locations.length === 0 && <tr><td colSpan={4} className="px-6 py-4 text-center text-gray-400">No locations defined.</td></tr>}
                 </tbody>
@@ -399,5 +446,19 @@ export const LocationForm = () => {
         </div>
       </div>
     </div>
+    <ConfirmationModal 
+      isOpen={!!deleteTarget}
+      title="Delete Location Record"
+      message="This will permanently remove this location from the system. This can ONLY be performed if there is no movement history linked to this location and (for Main Hubs) no sub-zones remain."
+      confirmText="Delete Location"
+      type="danger"
+      onConfirm={() => {
+        if (deleteLocation(deleteTarget!)) {
+          setDeleteTarget(null);
+        }
+      }}
+      onCancel={() => setDeleteTarget(null)}
+    />
+    </>
   );
 };

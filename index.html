@@ -3,75 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ScentVault | Inventory Intelligence</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            colors: {
-              primary: {
-                50: '#f5f3ff',
-                100: '#ede9fe',
-                500: '#6366f1',
-                600: '#4f46e5',
-                700: '#4338ca',
-                900: '#1e1b4b',
-              },
-              secondary: '#64748b',
-              accent: '#f43f5e',
-              success: '#10b981',
-              warning: '#f59e0b',
-            },
-            boxShadow: {
-              'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)',
-              'glass': '0 8px 32px 0 rgba(31, 38, 135, 0.07)',
-            }
-          }
-        }
-      }
-    </script>
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-      body {
-        font-family: 'Inter', sans-serif;
-      }
-      .glass-card {
-        background: rgba(255, 255, 255, 0.8);
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
-      }
-      /* Custom scrollbar */
-      ::-webkit-scrollbar {
-        width: 6px;
-      }
-      ::-webkit-scrollbar-track {
-        background: #f1f1f1;
-      }
-      ::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 10px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
-      }
-    </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "uuid": "https://esm.sh/uuid@^13.0.0",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "lucide-react": "https://esm.sh/lucide-react@^0.474.0",
-    "jspdf": "https://esm.sh/jspdf@2.5.1",
-    "jspdf-autotable": "https://esm.sh/jspdf-autotable@3.5.31",
-    "xlsx": "https://esm.sh/xlsx@0.18.5"
-  }
-}
-</script>
-</head>
+    
+    <!-- SEO Meta Tags -->
+    <title>ScentVault | Inventory Intelligence & Perfume Management</title>
+    <meta name="description" content="ScentVault is a premium perfume inventory management system offering real-time tracking, stock alerts, and intelligent logistics analytics." />
+    <meta name="keywords" content="perfume inventory, perfume management, logistics, scentvault, fragrance tracking" />
+    <meta name="author" content="ScentVault Team" />
+    
+    <!-- Favicon placeholder (can be updated later) -->
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+
+  </head>
   <body class="bg-slate-50 text-slate-900 antialiased">
     <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>
