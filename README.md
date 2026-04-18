@@ -19,7 +19,7 @@ A premium perfume inventory management system for industrial fragrance traders a
 
 ### 1. Clone & Install
 ```bash
-git clone https://github.com/<your-username>/ScentVault.git
+git clone https://github.com/Yumman1/ScentVault.git
 cd ScentVault
 npm install
 ```
