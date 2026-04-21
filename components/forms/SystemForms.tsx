@@ -211,8 +211,9 @@ export const CustomerForm = () => {
 
 // --- PACKING TYPE FORM ---
 export const PackingTypeForm = () => {
-  const { packingTypes, addPackingType, updatePackingType } = useInventory();
+  const { packingTypes, addPackingType, updatePackingType, deletePackingType } = useInventory();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const initialForm = { name: '', qtyPerPacking: '' };
   const [formData, setFormData] = useState(initialForm);
@@ -249,6 +250,7 @@ export const PackingTypeForm = () => {
   };
 
   return (
+    <>
     <div className="space-y-8">
       <form onSubmit={handleSubmit} className="p-6 bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 transition-colors">
         <div className="flex justify-between items-center mb-4">
@@ -289,9 +291,14 @@ export const PackingTypeForm = () => {
                             <td className="px-6 py-3 font-medium text-gray-900 dark:text-white">{p.name}</td>
                             <td className="px-6 py-3 font-mono">{p.qtyPerPacking}</td>
                             <td className="px-6 py-3 text-right">
-                                <button onClick={() => handleEdit(p)} className="text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 font-bold flex items-center gap-1 justify-end w-full">
-                                    <Pencil size={14}/> Edit
-                                </button>
+                                <div className="flex justify-end gap-3">
+                                    <button type="button" onClick={() => handleEdit(p)} className="text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 font-bold flex items-center gap-1 group">
+                                        <Pencil size={14} className="group-hover:scale-110 transition-transform"/> Edit
+                                    </button>
+                                    <button type="button" onClick={() => setDeleteTarget(p.id)} className="text-rose-500 hover:text-rose-700 font-bold flex items-center gap-1 group">
+                                        <Trash2 size={14} className="group-hover:scale-110 transition-transform"/> Delete
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                     ))}
@@ -301,6 +308,22 @@ export const PackingTypeForm = () => {
         </div>
       </div>
     </div>
+    <ConfirmationModal
+      isOpen={!!deleteTarget}
+      title="Delete Packing Type"
+      message="Remove this packing type from the registry. Existing gate in/out and transfer rows that used it will keep their weights; the packing reference may be cleared per database rules."
+      confirmText="Delete"
+      type="danger"
+      onConfirm={() => {
+        if (!deleteTarget) return;
+        const id = deleteTarget;
+        if (!deletePackingType(id)) return;
+        if (editingId === id) handleCancel();
+        setDeleteTarget(null);
+      }}
+      onCancel={() => setDeleteTarget(null)}
+    />
+    </>
   );
 };
 

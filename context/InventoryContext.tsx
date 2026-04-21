@@ -60,6 +60,7 @@ interface InventoryContextType {
   // Packing Types
   addPackingType: (p: PackingType) => void;
   updatePackingType: (id: string, p: PackingType) => void;
+  deletePackingType: (id: string) => boolean;
 
   // Olfactive Notes
   addOlfactiveNote: (name: string) => void;
@@ -307,6 +308,20 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       console.error('Failed to update packing type:', err);
       if (previous) setPackingTypes(prev => prev.map(item => item.id === id ? previous : item));
     });
+  }, [packingTypes, logAudit]);
+
+  const deletePackingType = useCallback((id: string) => {
+    const p = packingTypes.find(x => x.id === id);
+    if (!p) return false;
+
+    setPackingTypes(prev => prev.filter(item => item.id !== id));
+    packingTypeService.delete(id).then(() => {
+      logAudit(AuditAction.Delete, AuditEntity.PackingType, id, `Deleted packing type: ${p.name}`);
+    }).catch(err => {
+      console.error('Failed to delete packing type:', err);
+      setPackingTypes(prev => [...prev, p]);
+    });
+    return true;
   }, [packingTypes, logAudit]);
 
   // ── Location CRUD ────────────────────────────────────────────
@@ -801,7 +816,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       addPerfume, updatePerfume, deletePerfume,
       addLocation, updateLocation, deleteLocation,
       addCustomer, updateCustomer,
-      addPackingType, updatePackingType,
+      addPackingType, updatePackingType, deletePackingType,
       addOlfactiveNote, updateOlfactiveNote, deleteOlfactiveNote,
       addGateInLog, updateGateInLog, deleteGateInLog,
       addGateOutLog, updateGateOutLog, deleteGateOutLog,
