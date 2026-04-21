@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { User, UserRole } from '../types';
 
@@ -54,6 +54,17 @@ const formatSignInError = (err: { message: string; status?: number; code?: strin
     return 'No login found for this email yet, or the account is not active. Confirm your email if you just registered, or check Authentication → Users in Supabase.';
   }
   return msg;
+};
+
+const CONFIG_ERROR =
+  'Supabase is not configured for this deployment. In Vercel → Project → Settings → Environment Variables, add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY for Production, then trigger a new deployment (Vite needs them at build time).';
+
+const formatNetworkAuthError = (message: string): string => {
+  const m = message.toLowerCase();
+  if (m.includes('failed to fetch') || m.includes('networkerror') || m.includes('load failed')) {
+    return 'Cannot reach Supabase. On Vercel, set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY for Production and redeploy. Confirm the Supabase project is active (not paused) and the URL/key match Dashboard → Settings → API.';
+  }
+  return message;
 };
 
 const buildDevSession = (email: string): Session => {
@@ -227,13 +238,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { error: 'Invalid email or password' };
     }
 
+    if (!isSupabaseConfigured) {
+      return { error: CONFIG_ERROR };
+    }
+
     const normalizedEmail = normalizeAuthEmail(email);
-    const { error } = await supabase.auth.signInWithPassword({
-      email: normalizedEmail,
-      password,
-    });
-    if (error) return { error: formatSignInError(error) };
-    return { error: null };
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
+      if (error) return { error: formatSignInError(error) };
+      return { error: null };
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { error: formatNetworkAuthError(msg) };
+    }
   };
 
   const signUp = async (email: string, password: string, name: string, role: UserRole = UserRole.Admin) => {
@@ -243,17 +263,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     }
 
+    if (!isSupabaseConfigured) {
+      return { error: CONFIG_ERROR };
+    }
+
     const normalizedEmail = normalizeAuthEmail(email);
-    const { error } = await supabase.auth.signUp({
-      email: normalizedEmail,
-      password,
-      options: {
-        emailRedirectTo: typeof window !== 'undefined' ? `${window.location.origin}/` : undefined,
-        data: { name, role },
-      },
-    });
-    if (error) return { error: error.message };
-    return { error: null };
+    try {
+      const { error } = await supabase.auth.signUp({
+        email: normalizedEmail,
+        password,
+        options: {
+          emailRedirectTo: typeof window !== 'undefined' ? `${window.location.origin}/` : undefined,
+          data: { name, role },
+        },
+      });
+      if (error) return { error: error.message };
+      return { error: null };
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { error: formatNetworkAuthError(msg) };
+    }
   };
 
   const signOut = async () => {

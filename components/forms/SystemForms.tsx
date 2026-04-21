@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { v4 as generateId } from 'uuid';
 import { useInventory } from '../../context/InventoryContext';
 import { SupplierType, LocationType, Supplier, Customer, PackingType, Location } from '../../types';
 import { Input } from '../ui/Input';
@@ -6,9 +7,6 @@ import { Select } from '../ui/Select';
 import { Button } from '../ui/Button';
 import { Pencil, Trash2, X } from 'lucide-react';
 import { ConfirmationModal } from '../ui/ConfirmationModal';
-
-// Simple ID generator
-const generateId = () => Math.random().toString(36).substr(2, 9);
 
 // --- SUPPLIER FORM ---
 export const SupplierForm = () => {

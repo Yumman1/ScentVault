@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { v4 as generateId } from 'uuid';
 import { useInventory } from '../../context/InventoryContext';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
@@ -6,8 +7,6 @@ import { Button } from '../ui/Button';
 import { Pencil, Trash2, X, AlertCircle } from 'lucide-react';
 import { ConfirmationModal } from '../ui/ConfirmationModal';
 import { Perfume } from '../../types';
-
-const generateId = () => Math.random().toString(36).substr(2, 9);
 
 export const PerfumeMasterForm = () => {
   const { addPerfume, updatePerfume, deletePerfume, perfumes, suppliers, olfactiveNotes, addOlfactiveNote } = useInventory();
