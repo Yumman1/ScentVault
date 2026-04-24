@@ -238,7 +238,9 @@ export const PerfumeMasterForm = () => {
                                 ))}
                               </div>
                             </td>
-                            <td className="px-6 py-3 text-right">{p.dosage}%</td>
+                            <td className="px-6 py-3 text-right">
+                              {Number(p.dosage) === 0 ? '-' : `${p.dosage}%`}
+                            </td>
                             <td className="px-6 py-3 text-right">
                               {suppliers.find(s => s.id === p.supplierId)?.type === 'Local' ? (
                                 <span className="text-gray-400 italic">local source</span>
