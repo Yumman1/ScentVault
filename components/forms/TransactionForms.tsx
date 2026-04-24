@@ -71,6 +71,15 @@ export const GateInForm = () => {
   const subLocations = useMemo(() => mainLocId ? getSubLocations(mainLocId) : [], [mainLocId, getSubLocations]);
   const canViewPrices = hasPermission('view_prices');
 
+  const gateInPerfumeOptions = useMemo(
+    () =>
+      perfumes.map((p) => {
+        const supplierLabel = suppliers.find((s) => s.id === p.supplierId)?.name || 'Unknown';
+        return { value: p.id, label: `${p.code} - ${p.name} (${supplierLabel})` };
+      }),
+    [perfumes, suppliers],
+  );
+
   useEffect(() => {
     if (selectedPerfume && !editingId) {
         setPriceUSD(selectedPerfume.priceUSD?.toString() || '');
@@ -181,7 +190,7 @@ export const GateInForm = () => {
                                 <Input label="Movement Date" type="date" value={date} onChange={e => setDate(e.target.value)} required />
                                 <SearchableSelect 
                                     label="Perfume"
-                                    options={perfumes.map(p => ({ value: p.id, label: `${p.code} - ${p.name}` }))}
+                                    options={gateInPerfumeOptions}
                                     value={selectedPerfumeId}
                                     onChange={val => setSelectedPerfumeId(val)}
                                     required
