@@ -11,6 +11,7 @@ import {
   LogOut,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { UserRole } from '../../types';
 
 interface HeaderProps {
   currentView: string;
@@ -107,15 +108,28 @@ export const Header: React.FC<HeaderProps> = ({
                       <div className="space-y-1">
                         {results.perfumes.map(p => {
                           const stock = getPerfumeStockBreakdown(p.id).reduce((acc, b) => acc + b.weight, 0);
+                          const supplierName = suppliers.find(s => s.id === p.supplierId)?.name || 'Unknown';
                           return (
                             <button 
                               key={p.id}
-                              onClick={() => { navigate('/reports'); setShowSearchResults(false); }}
-                              className="w-full text-left p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-all group flex justify-between items-center"
+                              type="button"
+                              onClick={() => {
+                                setShowSearchResults(false);
+                                setSearchTerm('');
+                                if (currentUser?.role === UserRole.Admin) {
+                                  navigate(`/perfumes?highlight=${encodeURIComponent(p.id)}`);
+                                } else {
+                                  navigate('/reports');
+                                }
+                              }}
+                              className="w-full text-left p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-all group flex justify-between items-center gap-3"
                             >
-                              <div>
-                                <p className="text-sm font-black text-slate-700 dark:text-slate-200 group-hover:text-indigo-600">{p.name}</p>
-                                <p className="text-[10px] font-bold text-slate-400">{p.code}</p>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-black text-slate-700 dark:text-slate-200 group-hover:text-indigo-600 break-words">
+                                  {p.name}{' '}
+                                  <span className="text-slate-500 dark:text-slate-400 font-bold">({supplierName})</span>
+                                </p>
+                                <p className="text-[10px] font-bold text-slate-400 mt-0.5">{p.code}</p>
                               </div>
                               <div className={`px-2 py-1 rounded-lg text-[10px] font-black ${stock <= (p.lowStockAlert || 0) ? 'bg-rose-50 dark:bg-rose-900/20 text-rose-600' : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600'}`}>
                                 {stock.toFixed(1)} KG

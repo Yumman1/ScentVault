@@ -11,7 +11,7 @@ import {
   Info, History, Clock, TrendingDown, TrendingUp,
   AlertCircle, Zap, Box, Tag
 } from 'lucide-react';
-import { MovementType } from '../../types';
+import { MovementType, GateInLog, GateOutLog, StockTransferLog } from '../../types';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { useSearchParams } from 'react-router-dom';
 
@@ -23,7 +23,7 @@ export const ReportsView = () => {
     gateInLogs, gateOutLogs, transferLogs,
     getMainLocations, getSubLocations,
     currentUser, hasPermission, getPerfumeStockBreakdown,
-    getPerfumeMovementHistory, olfactiveNotes
+    olfactiveNotes
   } = useInventory();
 
   const [activeTab, setActiveTab] = useState<ReportType>('inventory');
@@ -97,8 +97,99 @@ export const ReportsView = () => {
 
   const hasActiveFilters = !!(
     filterLocation || filterSubLocation || filterSupplier || filterOlfactive ||
-    filterPriceUSDMin || filterPriceUSDMax
+    filterPriceUSDMin || filterPriceUSDMax ||
+    filterStartDate || filterEndDate || filterTxType !== 'ALL'
   );
+
+  const movementListConstraintActive =
+    filterTxType !== 'ALL' || !!filterStartDate || !!filterEndDate;
+
+  const historyData = useMemo(() => {
+    const hubF = filterLocation.trim();
+    const subF = filterSubLocation.trim();
+
+    const all = [
+      ...gateInLogs.map(l => ({ ...l, type: 'IN' as MovementType })),
+      ...gateOutLogs.map(l => ({ ...l, type: 'OUT' as MovementType })),
+      ...transferLogs.map(l => ({ ...l, type: 'TRANSFER' as MovementType })),
+    ];
+
+    return all
+      .filter(log => {
+        const dateStr = (log.date || '').slice(0, 10);
+        if (filterStartDate && dateStr < filterStartDate) return false;
+        if (filterEndDate && dateStr > filterEndDate) return false;
+        if (filterTxType !== 'ALL' && log.type !== filterTxType) return false;
+
+        const perfume = perfumes.find(x => x.id === log.perfumeId);
+        if (filterSupplier && (!perfume || perfume.supplierId !== filterSupplier)) return false;
+        if (filterOlfactive && (!perfume || !(perfume.olfactiveNotes || []).includes(filterOlfactive))) return false;
+
+        if (hubF || subF) {
+          if (log.type === 'IN' || log.type === 'OUT') {
+            const loc = log as GateInLog | GateOutLog;
+            if (hubF && (loc.mainLocationId || '').trim() !== hubF) return false;
+            if (subF && (loc.subLocationId || '').trim() !== subF) return false;
+          } else {
+            const tr = log as StockTransferLog;
+            const mainOk =
+              !hubF ||
+              (tr.fromMainLocationId || '').trim() === hubF ||
+              (tr.toMainLocationId || '').trim() === hubF;
+            if (!mainOk) return false;
+            if (subF) {
+              const subOk =
+                (tr.fromSubLocationId || '').trim() === subF ||
+                (tr.toSubLocationId || '').trim() === subF;
+              if (!subOk) return false;
+            }
+          }
+        }
+
+        if (isLocationRestricted && allowedLocationIds.length > 0) {
+          if (log.type === 'IN' || log.type === 'OUT') {
+            const loc = log as GateInLog | GateOutLog;
+            if (!allowedLocationIds.includes(loc.mainLocationId)) return false;
+          } else {
+            const tr = log as StockTransferLog;
+            const touch =
+              allowedLocationIds.includes(tr.fromMainLocationId) ||
+              allowedLocationIds.includes(tr.toMainLocationId);
+            if (!touch) return false;
+          }
+        }
+
+        if (searchTerm) {
+          const p = perfume;
+          const batchOrRef =
+            log.type === 'TRANSFER'
+              ? (log as StockTransferLog).batchNumber
+              : log.type === 'OUT'
+                ? (log as GateOutLog).batchNumber
+                : (log as GateInLog).importReference;
+          const searchStr = `${p?.name || ''} ${p?.code || ''} ${batchOrRef || ''}`.toLowerCase();
+          if (!searchStr.includes(searchTerm.toLowerCase())) return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [
+    gateInLogs,
+    gateOutLogs,
+    transferLogs,
+    filterStartDate,
+    filterEndDate,
+    filterTxType,
+    filterSupplier,
+    filterOlfactive,
+    filterLocation,
+    filterSubLocation,
+    searchTerm,
+    perfumes,
+    isLocationRestricted,
+    allowedLocationIds,
+  ]);
 
   const checkPriceFilter = (priceUSD: number | undefined) => {
       if (!canViewPrices) return true;
@@ -116,13 +207,17 @@ export const ReportsView = () => {
 
   // Summary logic
   const inventoryData = useMemo(() => {
+    const hubF = filterLocation.trim();
+    const subF = filterSubLocation.trim();
+    const hubScopeActive = !!(hubF || subF);
+
     return perfumes.map(p => {
       const breakdown = getPerfumeStockBreakdown(p.id);
       
       const filteredBreakdown = breakdown.filter(pos => {
         if (!checkLocationPermission(pos.mainLocationId)) return false;
-        if (filterLocation && pos.mainLocationId !== filterLocation) return false;
-        if (filterSubLocation && pos.subLocationId !== filterSubLocation) return false;
+        if (hubF && (pos.mainLocationId || '').trim() !== hubF) return false;
+        if (subF && (pos.subLocationId || '').trim() !== subF) return false;
         return true;
       });
 
@@ -143,6 +238,9 @@ export const ReportsView = () => {
       if (filterSupplier && p.supplierId !== filterSupplier) return null;
       if (filterOlfactive && (!(p.olfactiveNotes || []).includes(filterOlfactive))) return null;
       if (!checkPriceFilter(p.priceUSD)) return null;
+
+      // Hub / sub scope: only list SKUs that actually have on-hand (or non-zero position) there
+      if (hubScopeActive && Math.abs(totalWeight) <= 0.001) return null;
 
       const isLowStock = totalWeight <= (p.lowStockAlert || 0);
       const isCritical = totalWeight <= ((p.lowStockAlert || 0) * 0.5);
@@ -172,12 +270,17 @@ export const ReportsView = () => {
         const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                              item.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
                              item.activeBatches.toLowerCase().includes(searchTerm.toLowerCase());
-        return matchesSearch;
+        if (!matchesSearch) return false;
+        if (movementListConstraintActive) {
+          const allowed = historyData.some(h => h.perfumeId === item.id);
+          if (!allowed) return false;
+        }
+        return true;
     });
   }, [
       perfumes, suppliers, getPerfumeStockBreakdown, filterLocation, filterSubLocation, 
       filterSupplier, filterOlfactive, canViewPrices, filterPriceUSDMin, filterPriceUSDMax,
-      activeTab, searchTerm
+      activeTab, searchTerm, movementListConstraintActive, historyData
   ]);
 
   // Batch Intelligence Logic
@@ -233,50 +336,30 @@ export const ReportsView = () => {
     };
   }, [selectedBatchName, activeTab, gateInLogs, gateOutLogs, perfumes, suppliers]);
 
-  const historyData = useMemo(() => {
-    const all = [
-        ...gateInLogs.map(l => ({ ...l, type: 'IN' as MovementType })),
-        ...gateOutLogs.map(l => ({ ...l, type: 'OUT' as MovementType })),
-        ...transferLogs.map(l => ({ ...l, type: 'TRANSFER' as MovementType }))
-    ];
-
-    return all.filter(log => {
-        const d = new Date(log.date);
-        if (filterStartDate && d < new Date(filterStartDate)) return false;
-        if (filterEndDate && d > new Date(filterEndDate)) return false;
-        if (filterTxType !== 'ALL' && log.type !== filterTxType) return false;
-        
-        // Multi-field search
-        if (searchTerm) {
-            const p = perfumes.find(x => x.id === (log as any).perfumeId);
-            const searchStr = `${p?.name} ${p?.code} ${(log as any).batchNumber || (log as any).importReference}`.toLowerCase();
-            if (!searchStr.includes(searchTerm.toLowerCase())) return false;
-        }
-
-        return true;
-    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [gateInLogs, gateOutLogs, transferLogs, filterStartDate, filterEndDate, filterTxType, searchTerm, perfumes]);
-
   const yieldData = useMemo(() => {
-    return perfumes.map(p => {
+    const inventoryIds = new Set(inventoryData.map(i => i.id));
+    return perfumes
+      .filter(p => inventoryIds.has(p.id))
+      .map(p => {
         const outLogs = gateOutLogs.filter(l => l.perfumeId === p.id);
         const productionVolume = outLogs.filter(l => l.usage === 'Production').reduce((acc, l) => acc + l.netWeight, 0);
         const commerceVolume = outLogs.filter(l => l.usage === 'Sale').reduce((acc, l) => acc + l.netWeight, 0);
         const totalOutbound = productionVolume + commerceVolume;
-        
+
         return {
-            id: p.id,
-            code: p.code,
-            name: p.name,
-            productionVolume,
-            commerceVolume,
-            totalOutbound,
-            productionPct: totalOutbound ? (productionVolume / totalOutbound) * 100 : 0,
-            commercePct: totalOutbound ? (commerceVolume / totalOutbound) * 100 : 0
+          id: p.id,
+          code: p.code,
+          name: p.name,
+          productionVolume,
+          commerceVolume,
+          totalOutbound,
+          productionPct: totalOutbound ? (productionVolume / totalOutbound) * 100 : 0,
+          commercePct: totalOutbound ? (commerceVolume / totalOutbound) * 100 : 0,
         };
-    }).filter(d => d.totalOutbound > 0)
-    .sort((a,b) => b.totalOutbound - a.totalOutbound);
-  }, [perfumes, gateOutLogs]);
+      })
+      .filter(d => d.totalOutbound > 0)
+      .sort((a, b) => b.totalOutbound - a.totalOutbound);
+  }, [perfumes, gateOutLogs, inventoryData]);
 
   const capitalIntelligence = useMemo(() => {
     const supplierStats = suppliers.map(s => {
@@ -581,7 +664,7 @@ export const ReportsView = () => {
       const p = inventoryData.find(i => i.id === drillDownPerfumeId);
       if (!p) return null;
 
-      const movementHistory = getPerfumeMovementHistory(p.id);
+      const movementHistory = historyData.filter(h => h.perfumeId === p.id);
 
       return (
           <div className="animate-in fade-in slide-in-from-right-4 duration-300">
@@ -816,7 +899,7 @@ export const ReportsView = () => {
 
   return (
     <>
-      <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+      <div className="p-4 sm:p-8 max-w-7xl mx-auto w-full min-w-0 space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
             <h2 className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter">Supply Intelligence</h2>
@@ -882,7 +965,7 @@ export const ReportsView = () => {
       ) : drillDownSupplier ? (
           renderSupplierDrillDown()
       ) : (
-          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-soft border border-slate-200 dark:border-slate-700 overflow-hidden transition-colors">
+          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-soft border border-slate-200 dark:border-slate-700 min-w-0 overflow-x-auto transition-colors">
             <div className="flex border-b border-slate-100 dark:border-slate-700 p-2 bg-slate-50/50 dark:bg-slate-900/50">
                 {(['inventory', 'yield', 'capital', 'batch'] as ReportType[]).map(tab => (
                     <button 
@@ -1038,8 +1121,21 @@ export const ReportsView = () => {
                     </div>
                 )}
 
-                <div className="overflow-hidden border border-slate-100 dark:border-slate-700 rounded-3xl">
-                    <table className="w-full text-left text-sm">
+                {activeTab === 'inventory' && filterLocation.trim() && (
+                  <div className="mb-4 px-1 flex flex-wrap items-center gap-2 text-sm font-bold text-slate-600 dark:text-slate-300">
+                    <MapPin size={16} className="text-indigo-500 shrink-0" />
+                    <span>
+                      Showing on-hand only at{' '}
+                      <span className="text-indigo-600 dark:text-indigo-400">
+                        {mainLocations.find(l => l.id === filterLocation.trim())?.name || 'selected hub'}
+                      </span>
+                      . Perfumes with no stock at this hub are omitted.
+                    </span>
+                  </div>
+                )}
+
+                <div className="overflow-x-auto border border-slate-100 dark:border-slate-700 rounded-3xl min-w-0 -mx-px">
+                    <table className="w-full min-w-[56rem] text-left text-sm">
                         {activeTab === 'batch' ? (
                             <>
                                 <thead className="bg-slate-50 dark:bg-slate-900 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] border-b border-slate-100 dark:border-slate-700">
@@ -1228,13 +1324,13 @@ export const ReportsView = () => {
                             <>
                                 <thead className="bg-slate-50 dark:bg-slate-900 text-[11px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">
                                     <tr>
-                                        <th className="px-8 py-6">Supplier</th>
-                                        <th className="px-8 py-6">Perfume Code</th>
-                                        <th className="px-8 py-6">Perfume Name</th>
-                                        <th className="px-8 py-6">Batch</th>
-                                        <th className="px-8 py-6 text-right">Net-on-Hand</th>
-                                        <th className="px-8 py-6 text-center">Status</th>
-                                        <th className="px-8 py-6 text-right">Action</th>
+                                        <th className="px-4 lg:px-6 py-6">Supplier</th>
+                                        <th className="px-4 lg:px-6 py-6">Perfume Code</th>
+                                        <th className="px-4 lg:px-6 py-6">Perfume Name</th>
+                                        <th className="px-4 lg:px-6 py-6">Batch</th>
+                                        <th className="px-4 lg:px-6 text-right">Net-on-Hand</th>
+                                        <th className="px-4 lg:px-6 text-center">Status</th>
+                                        <th className="px-4 lg:px-6 text-right whitespace-nowrap"><span className="sr-only">Action</span></th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50 font-medium">
@@ -1244,16 +1340,16 @@ export const ReportsView = () => {
                                         className="hover:bg-indigo-50/30 dark:hover:bg-indigo-900/10 transition-all cursor-pointer group"
                                         onClick={() => setDrillDownPerfumeId(item.id)}
                                         >
-                                            <td className="px-8 py-6">
+                                            <td className="px-4 lg:px-6 py-6">
                                                 <div className="font-black text-slate-900 dark:text-slate-100 uppercase tracking-tight text-xs">{item.supplierName}</div>
                                             </td>
-                                            <td className="px-8 py-6 text-xs font-mono font-bold text-indigo-500 uppercase tracking-widest">
+                                            <td className="px-4 lg:px-6 py-6 text-xs font-mono font-bold text-indigo-500 uppercase tracking-widest whitespace-nowrap">
                                                 {item.code}
                                             </td>
-                                            <td className="px-8 py-6">
+                                            <td className="px-4 lg:px-6 py-6 min-w-[8rem]">
                                                 <div className="font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter">{item.name}</div>
                                             </td>
-                                            <td className="px-8 py-6">
+                                            <td className="px-4 lg:px-6 py-6">
                                                 <div className="flex flex-wrap gap-2 max-w-[200px]">
                                                     {item.activeBatches.split(', ').slice(0, 2).map((b, idx) => (
                                                         <span key={idx} className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 px-2 py-1 rounded text-[10px] font-mono font-bold shadow-sm">{b}</span>
@@ -1261,11 +1357,11 @@ export const ReportsView = () => {
                                                     {item.activeBatches.split(', ').length > 2 && <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">+{item.activeBatches.split(', ').length - 2}</span>}
                                                 </div>
                                             </td>
-                                            <td className="px-8 py-6 text-right">
+                                            <td className="px-4 lg:px-6 py-6 text-right whitespace-nowrap tabular-nums">
                                                 <span className={`font-black text-lg ${item.isLowStock ? 'text-rose-600 dark:text-rose-500' : 'text-slate-900 dark:text-slate-200'}`}>{item.currentWeight.toFixed(2)}</span>
                                                 <span className="text-slate-400 dark:text-slate-500 ml-1 text-xs">kg</span>
                                             </td>
-                                            <td className="px-8 py-6 text-center">
+                                            <td className="px-4 lg:px-6 py-6 text-center whitespace-nowrap">
                                                 <span className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider ${
                                                     item.isCritical ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-400' :
                                                     item.isLowStock ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400' :
@@ -1274,8 +1370,13 @@ export const ReportsView = () => {
                                                     {item.isCritical ? 'Critical' : item.isLowStock ? 'Low' : 'Secure'}
                                                 </span>
                                             </td>
-                                            <td className="px-8 py-6 text-right">
-                                                <button className="p-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-2xl text-slate-300 dark:text-slate-500 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 group-hover:border-indigo-500 transition-all shadow-sm">
+                                            <td className="px-4 lg:px-6 py-6 text-right whitespace-nowrap w-px">
+                                                <button
+                                                  type="button"
+                                                  aria-label={`Details for ${item.name}`}
+                                                  onClick={(e) => e.stopPropagation()}
+                                                  className="p-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-2xl text-slate-300 dark:text-slate-500 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 group-hover:border-indigo-500 transition-all shadow-sm"
+                                                >
                                                     <Info size={18} />
                                                 </button>
                                             </td>
@@ -1287,7 +1388,7 @@ export const ReportsView = () => {
                         {(activeTab === 'yield' ? yieldData : inventoryData).length === 0 && activeTab !== 'capital' && activeTab !== 'batch' && (
                             <tbody>
                                 <tr>
-                                    <td colSpan={10} className="px-8 py-32 text-center text-slate-300 dark:text-slate-600 italic font-medium">No records match your criteria.</td>
+                                    <td colSpan={activeTab === 'yield' ? 5 : 7} className="px-8 py-32 text-center text-slate-300 dark:text-slate-600 italic font-medium">No records match your criteria.</td>
                                 </tr>
                             </tbody>
                         )}

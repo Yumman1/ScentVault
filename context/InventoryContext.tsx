@@ -710,7 +710,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   // ── Computed: Location Helpers ───────────────────────────────
-  const getMainLocations = useCallback(() => locations.filter(l => l.type === 'Main Location'), [locations]);
+  const getMainLocations = useCallback(
+    () =>
+      locations.filter((l) => {
+        const t = String(l?.type ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+        return t === 'main location';
+      }),
+    [locations],
+  );
   const getSubLocations = useCallback((mainId: string) => locations.filter(l => l.type === 'Sub Location' && l.parentId === mainId), [locations]);
 
   const hasPermission = useCallback((permission: 'view_prices' | 'manage_users' | 'manage_master_data') => {

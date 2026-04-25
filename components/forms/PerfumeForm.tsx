@@ -1,15 +1,42 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo, useLayoutEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { v4 as generateId } from 'uuid';
 import { useInventory } from '../../context/InventoryContext';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { Button } from '../ui/Button';
-import { Pencil, Trash2, X, AlertCircle } from 'lucide-react';
+import { Pencil, Trash2, X, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { ConfirmationModal } from '../ui/ConfirmationModal';
 import { Perfume } from '../../types';
 
+const MASTER_LIST_PAGE_SIZE = 15;
+
+function buildPageList(current: number, total: number): (number | 'gap')[] {
+  if (total <= 1) return [];
+  const windowSize = 5;
+  const half = Math.floor(windowSize / 2);
+  let start = Math.max(1, current - half);
+  let end = Math.min(total, start + windowSize - 1);
+  start = Math.max(1, end - windowSize + 1);
+
+  const items: (number | 'gap')[] = [];
+  if (start > 1) {
+    items.push(1);
+    if (start > 2) items.push('gap');
+  }
+  for (let i = start; i <= end; i++) items.push(i);
+  if (end < total) {
+    if (end < total - 1) items.push('gap');
+    items.push(total);
+  }
+  return items;
+}
+
 export const PerfumeMasterForm = () => {
   const { addPerfume, updatePerfume, deletePerfume, perfumes, suppliers, olfactiveNotes, addOlfactiveNote } = useInventory();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [highlightRowId, setHighlightRowId] = useState<string | null>(null);
+  const [listPage, setListPage] = useState(1);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -110,10 +137,52 @@ export const PerfumeMasterForm = () => {
 
   const getSupplierName = (id: string) => suppliers.find(s => s.id === id)?.name || 'Unknown';
 
+  const highlightParam = searchParams.get('highlight');
+
+  const totalPages = Math.max(1, Math.ceil(perfumes.length / MASTER_LIST_PAGE_SIZE));
+  const pageList = useMemo(() => buildPageList(listPage, totalPages), [listPage, totalPages]);
+
+  const paginatedPerfumes = useMemo(() => {
+    const start = (listPage - 1) * MASTER_LIST_PAGE_SIZE;
+    return perfumes.slice(start, start + MASTER_LIST_PAGE_SIZE);
+  }, [perfumes, listPage]);
+
+  useEffect(() => {
+    if (listPage > totalPages) setListPage(totalPages);
+  }, [listPage, totalPages]);
+
+  useEffect(() => {
+    if (!highlightParam) return;
+    if (perfumes.length === 0) return;
+
+    const idx = perfumes.findIndex(p => p.id === highlightParam);
+    if (idx < 0) {
+      setSearchParams({}, { replace: true });
+      return;
+    }
+
+    setListPage(Math.floor(idx / MASTER_LIST_PAGE_SIZE) + 1);
+    setHighlightRowId(highlightParam);
+
+    const clearTimer = window.setTimeout(() => {
+      setHighlightRowId(null);
+      setSearchParams({}, { replace: true });
+    }, 4000);
+
+    return () => window.clearTimeout(clearTimer);
+  }, [highlightParam, perfumes, setSearchParams]);
+
+  useLayoutEffect(() => {
+    if (!highlightRowId) return;
+    const el = document.getElementById(`perfume-master-row-${highlightRowId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [highlightRowId, listPage]);
+
   return (
     <>
-    <div className="space-y-8">
-      <form onSubmit={handleSubmit} className="p-6 bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 transition-colors">
+    <div className="space-y-8 w-full max-w-full min-w-0">
+      <form onSubmit={handleSubmit} className="p-4 sm:p-6 bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 transition-colors max-w-full min-w-0 box-border">
         <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-bold text-gray-800 dark:text-white">{editingId ? 'Edit Perfume' : 'New Perfume'}</h3>
             {editingId && <Button type="button" variant="secondary" onClick={handleCancel} className="text-xs flex items-center gap-1"><X size={14}/> Cancel Edit</Button>}
@@ -129,7 +198,7 @@ export const PerfumeMasterForm = () => {
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           <Input label="Perfume Name" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required />
           <Input label="Perfume Code" value={formData.code} onChange={e => setFormData({ ...formData, code: e.target.value })} required />
           <Select 
@@ -209,55 +278,83 @@ export const PerfumeMasterForm = () => {
       </form>
 
       {/* Perfume List */}
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden transition-colors">
-        <h3 className="px-6 py-4 border-b border-gray-100 dark:border-slate-700 font-medium text-gray-700 dark:text-slate-200 bg-gray-50 dark:bg-slate-900/50">Perfume Master List</h3>
-        <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left text-gray-700 dark:text-slate-300">
-                <thead className="text-xs text-gray-500 dark:text-slate-400 uppercase bg-gray-50 dark:bg-slate-900 border-b dark:border-slate-700">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden transition-colors max-w-full min-w-0">
+        <div className="px-4 sm:px-6 py-4 border-b border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50 flex flex-wrap items-center justify-between gap-3">
+          <h3 className="font-medium text-gray-700 dark:text-slate-200">Perfume Master List</h3>
+          {perfumes.length > 0 && (
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 tabular-nums">
+              {(listPage - 1) * MASTER_LIST_PAGE_SIZE + 1}
+              –{Math.min(listPage * MASTER_LIST_PAGE_SIZE, perfumes.length)} of {perfumes.length}
+            </p>
+          )}
+        </div>
+        <div className="overflow-x-auto max-w-full -mx-px">
+            <table className="w-full text-sm text-left text-gray-700 dark:text-slate-300 table-auto">
+                <thead className="text-[10px] sm:text-xs text-gray-500 dark:text-slate-400 uppercase bg-gray-50 dark:bg-slate-900 border-b dark:border-slate-700 whitespace-nowrap">
                     <tr>
-                        <th className="px-6 py-3">Code</th>
-                        <th className="px-6 py-3">Name</th>
-                        <th className="px-6 py-3">Supplier</th>
-                        <th className="px-6 py-3">Olfactive Notes</th>
-                        <th className="px-6 py-3 text-right">Dosage (%)</th>
-                        <th className="px-6 py-3 text-right">Price (USD)</th>
-                        <th className="px-6 py-3 text-right">Price (PKR)</th>
-                        <th className="px-6 py-3 text-right">Action</th>
+                        <th className="px-2 sm:px-3 py-3">Code</th>
+                        <th className="px-2 sm:px-3 py-3 min-w-[6rem]">Name</th>
+                        <th className="px-2 sm:px-3 py-3 min-w-[5rem]">Supplier</th>
+                        <th className="px-2 sm:px-3 py-3 min-w-[7rem]">Notes</th>
+                        <th className="px-2 sm:px-3 py-3 text-right">Dosage</th>
+                        <th className="px-2 sm:px-3 py-3 text-right whitespace-nowrap">USD</th>
+                        <th className="px-2 sm:px-3 py-3 text-right whitespace-nowrap">PKR</th>
+                        <th className="px-2 sm:px-3 py-3 text-right w-px"><span className="sr-only">Actions</span></th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
-                    {perfumes.map(p => (
-                        <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-slate-900/50 transition-colors">
-                            <td className="px-6 py-3 font-medium text-gray-900 dark:text-white">{p.code}</td>
-                            <td className="px-6 py-3 font-medium dark:text-slate-200">{p.name}</td>
-                            <td className="px-6 py-3">{getSupplierName(p.supplierId)}</td>
-                            <td className="px-6 py-3">
+                    {paginatedPerfumes.map(p => (
+                        <tr
+                          key={p.id}
+                          id={`perfume-master-row-${p.id}`}
+                          className={`hover:bg-gray-50 dark:hover:bg-slate-900/50 transition-[background-color,box-shadow] duration-500 ${
+                            highlightRowId === p.id
+                              ? 'bg-indigo-50 dark:bg-indigo-950/40 ring-2 ring-inset ring-indigo-500 shadow-[inset_0_0_0_1px_rgba(99,102,241,0.35)]'
+                              : ''
+                          }`}
+                        >
+                            <td className="px-2 sm:px-3 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap tabular-nums">{p.code}</td>
+                            <td className="px-2 sm:px-3 py-3 font-medium dark:text-slate-200 max-w-[10rem] sm:max-w-[14rem] truncate" title={p.name}>{p.name}</td>
+                            <td className="px-2 sm:px-3 py-3 max-w-[8rem] sm:max-w-[12rem] truncate" title={getSupplierName(p.supplierId)}>{getSupplierName(p.supplierId)}</td>
+                            <td className="px-2 sm:px-3 py-3 max-w-[12rem]">
                               <div className="flex flex-wrap gap-1">
                                 {(p.olfactiveNotes || []).map((note, idx) => (
                                   <span key={idx} className="bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-400 text-[10px] px-2 py-0.5 rounded-full font-bold">{note}</span>
                                 ))}
                               </div>
                             </td>
-                            <td className="px-6 py-3 text-right">
+                            <td className="px-2 sm:px-3 py-3 text-right whitespace-nowrap tabular-nums">
                               {Number(p.dosage) === 0 ? '-' : `${p.dosage}%`}
                             </td>
-                            <td className="px-6 py-3 text-right">
+                            <td className="px-2 sm:px-3 py-3 text-right whitespace-nowrap tabular-nums min-w-[5rem]">
                               {suppliers.find(s => s.id === p.supplierId)?.type === 'Local' ? (
-                                <span className="text-gray-400 italic">local source</span>
+                                <span className="text-gray-400 italic text-xs whitespace-nowrap" title="Local supplier — no USD">local</span>
                               ) : (p.priceUSD || 0) === 0 ? (
                                 '-'
                               ) : (
                                 `$${(p.priceUSD || 0).toFixed(2)}`
                               )}
                             </td>
-                            <td className="px-6 py-3 text-right">Rs. {(p.pricePKR || 0).toLocaleString()}</td>
-                             <td className="px-6 py-3 text-right">
-                                 <div className="flex justify-end gap-3">
-                                   <button onClick={() => handleEdit(p)} className="text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 font-bold flex items-center gap-1 group">
-                                       <Pencil size={14} className="group-hover:scale-110 transition-transform"/> Edit
+                            <td className="px-2 sm:px-3 py-3 text-right whitespace-nowrap tabular-nums min-w-[6.5rem]"><span className="inline-block">Rs. {(p.pricePKR || 0).toLocaleString()}</span></td>
+                             <td className="px-2 sm:px-3 py-3 text-right whitespace-nowrap">
+                                 <div className="flex justify-end items-center gap-1">
+                                   <button
+                                     type="button"
+                                     aria-label={`Edit ${p.name}`}
+                                     title="Edit"
+                                     onClick={() => handleEdit(p)}
+                                     className="p-2 rounded-xl text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-950/40 hover:text-primary-700 dark:hover:text-primary-300 transition-colors"
+                                   >
+                                       <Pencil size={16} strokeWidth={2.25} />
                                    </button>
-                                   <button onClick={() => setDeleteTarget(p.id)} className="text-rose-500 hover:text-rose-700 font-bold flex items-center gap-1 group">
-                                       <Trash2 size={14} className="group-hover:scale-110 transition-transform"/> Delete
+                                   <button
+                                     type="button"
+                                     aria-label={`Delete ${p.name}`}
+                                     title="Delete"
+                                     onClick={() => setDeleteTarget(p.id)}
+                                     className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-700 transition-colors"
+                                   >
+                                       <Trash2 size={16} strokeWidth={2.25} />
                                    </button>
                                  </div>
                              </td>
@@ -266,6 +363,75 @@ export const PerfumeMasterForm = () => {
                 </tbody>
             </table>
         </div>
+        {totalPages > 1 && (
+          <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-between gap-3 px-4 py-3 border-t border-gray-100 dark:border-slate-700 bg-gray-50/80 dark:bg-slate-900/40">
+            <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+              Page {listPage} of {totalPages}
+            </p>
+            <div className="flex flex-wrap items-center justify-end gap-1">
+              <button
+                type="button"
+                aria-label="First page"
+                disabled={listPage <= 1}
+                onClick={() => setListPage(1)}
+                className="px-2.5 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-tight text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 disabled:opacity-40 disabled:pointer-events-none hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+              >
+                First
+              </button>
+              <button
+                type="button"
+                aria-label="Previous page"
+                disabled={listPage <= 1}
+                onClick={() => setListPage(p => Math.max(1, p - 1))}
+                className="p-2 rounded-lg text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 disabled:opacity-40 disabled:pointer-events-none hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+              >
+                <ChevronLeft size={18} strokeWidth={2.5} />
+              </button>
+              <div className="flex flex-wrap items-center gap-1 px-1">
+                {pageList.map((item, i) =>
+                  item === 'gap' ? (
+                    <span key={`gap-${i}`} className="px-1 text-slate-400 font-black text-xs">
+                      …
+                    </span>
+                  ) : (
+                    <button
+                      key={item}
+                      type="button"
+                      aria-label={`Page ${item}`}
+                      aria-current={item === listPage ? 'page' : undefined}
+                      onClick={() => setListPage(item)}
+                      className={`min-w-[2.25rem] px-2 py-1.5 rounded-lg text-xs font-black tabular-nums transition-colors ${
+                        item === listPage
+                          ? 'bg-indigo-600 text-white shadow-md'
+                          : 'text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {item}
+                    </button>
+                  )
+                )}
+              </div>
+              <button
+                type="button"
+                aria-label="Next page"
+                disabled={listPage >= totalPages}
+                onClick={() => setListPage(p => Math.min(totalPages, p + 1))}
+                className="p-2 rounded-lg text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 disabled:opacity-40 disabled:pointer-events-none hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+              >
+                <ChevronRight size={18} strokeWidth={2.5} />
+              </button>
+              <button
+                type="button"
+                aria-label="Last page"
+                disabled={listPage >= totalPages}
+                onClick={() => setListPage(totalPages)}
+                className="px-2.5 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-tight text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 disabled:opacity-40 disabled:pointer-events-none hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+              >
+                Last
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
     <ConfirmationModal

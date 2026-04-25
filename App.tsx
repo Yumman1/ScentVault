@@ -57,7 +57,7 @@ const AppContent = () => {
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-900 font-sans text-slate-900 dark:text-slate-100 selection:bg-indigo-100">
       <Sidebar currentView={currentView} />
-      <main className="flex-1 flex flex-col min-h-screen">
+      <main className="flex-1 flex flex-col min-h-screen min-w-0">
         <Header 
           currentView={currentView} 
           searchTerm={dashboardSearch} 
@@ -70,7 +70,7 @@ const AppContent = () => {
               <Route path="/reports" element={<ReportsView />} />
               
               {/* Protected Master Data Routes */}
-              <Route path="/perfumes" element={isAdmin ? <div className="p-10"><PerfumeMasterForm /></div> : <Navigate to="/dashboard" replace />} />
+              <Route path="/perfumes" element={isAdmin ? <div className="p-4 sm:p-6 lg:p-10 max-w-full min-w-0"><PerfumeMasterForm /></div> : <Navigate to="/dashboard" replace />} />
               <Route path="/tags" element={isAdmin ? <TagsSettings /> : <Navigate to="/dashboard" replace />} />
               <Route path="/suppliers" element={isAdmin ? <div className="p-10"><SupplierForm /></div> : <Navigate to="/dashboard" replace />} />
               <Route path="/customers" element={isAdmin ? <div className="p-10"><CustomerForm /></div> : <Navigate to="/dashboard" replace />} />
