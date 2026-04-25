@@ -244,6 +244,8 @@ export const PerfumeMasterForm = () => {
                             <td className="px-6 py-3 text-right">
                               {suppliers.find(s => s.id === p.supplierId)?.type === 'Local' ? (
                                 <span className="text-gray-400 italic">local source</span>
+                              ) : (p.priceUSD || 0) === 0 ? (
+                                '-'
                               ) : (
                                 `$${(p.priceUSD || 0).toFixed(2)}`
                               )}

@@ -200,7 +200,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ searchTerm }) => {
       </div>
 
       <div className="space-y-8">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div className={`grid grid-cols-1 md:grid-cols-2 gap-8 ${hasPermission('view_prices') ? 'xl:grid-cols-4' : ''}`}>
             <DashboardCard 
                 title="Total Stock Load" 
                 value={`${stats.totalWeight.toLocaleString()} kg`} 
@@ -208,6 +208,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ searchTerm }) => {
                 icon={Scale} 
                 bgColor="bg-slate-900" 
                 iconColor="text-slate-100"
+            />
+            <DashboardCard 
+                title="Perfume Master List" 
+                value={stats.totalItems} 
+                subtitle="Total registered SKUs in archive" 
+                icon={FlaskConical} 
+                bgColor="bg-violet-600" 
+                iconColor="text-white"
+                bgOpacity="bg-opacity-100"
             />
             {hasPermission('view_prices') && (
                 <>
