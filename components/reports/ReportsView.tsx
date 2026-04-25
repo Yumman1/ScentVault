@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -9,13 +9,122 @@ import {
   DollarSign, Coins, ChevronDown, ChevronUp, Scale,
   MapPin, Package, ArrowRightLeft, Lock, ArrowLeft,
   Info, History, Clock, TrendingDown, TrendingUp,
-  AlertCircle, Zap, Box, Tag
+  AlertCircle, Zap, Box, Tag, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { MovementType, GateInLog, GateOutLog, StockTransferLog } from '../../types';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { useSearchParams } from 'react-router-dom';
 
 type ReportType = 'inventory' | 'yield' | 'capital' | 'batch';
+
+const REPORT_TABLE_PAGE_SIZE = 15;
+
+function buildReportPageList(current: number, total: number): (number | 'gap')[] {
+  if (total <= 1) return [];
+  const windowSize = 5;
+  const half = Math.floor(windowSize / 2);
+  let start = Math.max(1, current - half);
+  let end = Math.min(total, start + windowSize - 1);
+  start = Math.max(1, end - windowSize + 1);
+
+  const items: (number | 'gap')[] = [];
+  if (start > 1) {
+    items.push(1);
+    if (start > 2) items.push('gap');
+  }
+  for (let i = start; i <= end; i++) items.push(i);
+  if (end < total) {
+    if (end < total - 1) items.push('gap');
+    items.push(total);
+  }
+  return items;
+}
+
+function ReportTablePagination(props: {
+  page: number;
+  setPage: React.Dispatch<React.SetStateAction<number>>;
+  totalPages: number;
+  totalCount: number;
+  pageList: (number | 'gap')[];
+}) {
+  const { page, setPage, totalPages, totalCount, pageList } = props;
+  if (totalPages <= 1 || totalCount === 0) return null;
+  const start = (page - 1) * REPORT_TABLE_PAGE_SIZE + 1;
+  const end = Math.min(page * REPORT_TABLE_PAGE_SIZE, totalCount);
+  return (
+    <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-between gap-3 px-4 py-3 border-t border-slate-100 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40">
+      <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 tabular-nums">
+        <span className="uppercase tracking-wide">Page </span>
+        {page} of {totalPages}
+        <span className="text-slate-400 dark:text-slate-500 font-medium ml-2">
+          ({start}–{end} of {totalCount})
+        </span>
+      </p>
+      <div className="flex flex-wrap items-center justify-end gap-1">
+        <button
+          type="button"
+          aria-label="First page"
+          disabled={page <= 1}
+          onClick={() => setPage(1)}
+          className="px-2.5 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-tight text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 disabled:opacity-40 disabled:pointer-events-none hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+        >
+          First
+        </button>
+        <button
+          type="button"
+          aria-label="Previous page"
+          disabled={page <= 1}
+          onClick={() => setPage(p => Math.max(1, p - 1))}
+          className="p-2 rounded-lg text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 disabled:opacity-40 disabled:pointer-events-none hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+        >
+          <ChevronLeft size={18} strokeWidth={2.5} />
+        </button>
+        <div className="flex flex-wrap items-center gap-1 px-1">
+          {pageList.map((item, i) =>
+            item === 'gap' ? (
+              <span key={`gap-${i}`} className="px-1 text-slate-400 font-black text-xs">
+                …
+              </span>
+            ) : (
+              <button
+                key={item}
+                type="button"
+                aria-label={`Page ${item}`}
+                aria-current={item === page ? 'page' : undefined}
+                onClick={() => setPage(item)}
+                className={`min-w-[2.25rem] px-2 py-1.5 rounded-lg text-xs font-black tabular-nums transition-colors ${
+                  item === page
+                    ? 'bg-indigo-600 text-white shadow-md'
+                    : 'text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700'
+                }`}
+              >
+                {item}
+              </button>
+            )
+          )}
+        </div>
+        <button
+          type="button"
+          aria-label="Next page"
+          disabled={page >= totalPages}
+          onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+          className="p-2 rounded-lg text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 disabled:opacity-40 disabled:pointer-events-none hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+        >
+          <ChevronRight size={18} strokeWidth={2.5} />
+        </button>
+        <button
+          type="button"
+          aria-label="Last page"
+          disabled={page >= totalPages}
+          onClick={() => setPage(totalPages)}
+          className="px-2.5 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-tight text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 disabled:opacity-40 disabled:pointer-events-none hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+        >
+          Last
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export const ReportsView = () => {
   const { 
@@ -56,6 +165,11 @@ export const ReportsView = () => {
   const [filterEndDate, setFilterEndDate] = useState('');
   const [filterTxType, setFilterTxType] = useState<MovementType | 'ALL'>('ALL');
 
+  const [pageInventory, setPageInventory] = useState(1);
+  const [pageYield, setPageYield] = useState(1);
+  const [pageBatch, setPageBatch] = useState(1);
+  const [pageAgedBatches, setPageAgedBatches] = useState(1);
+
   // Permissions Checks
   const canViewPrices = hasPermission('view_prices');
   const allowedLocationIds = currentUser?.permissions?.allowedLocationIds || [];
@@ -79,6 +193,13 @@ export const ReportsView = () => {
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    setPageInventory(1);
+    setPageYield(1);
+    setPageBatch(1);
+    setPageAgedBatches(1);
+  }, [activeTab]);
+
   const mainLocations = getMainLocations().filter(l => 
     !isLocationRestricted || allowedLocationIds.includes(l.id)
   );
@@ -93,6 +214,10 @@ export const ReportsView = () => {
     setFilterStartDate('');
     setFilterEndDate('');
     setFilterTxType('ALL');
+    setPageInventory(1);
+    setPageYield(1);
+    setPageBatch(1);
+    setPageAgedBatches(1);
   };
 
   const hasActiveFilters = !!(
@@ -412,6 +537,58 @@ export const ReportsView = () => {
 
       return { totalWeight, totalValue, criticalCount, moveCount24h };
   }, [inventoryData, historyData]);
+
+  const batchRows = useMemo(() => batchReportData?.rows ?? [], [batchReportData]);
+
+  const invTotalPages = Math.max(1, Math.ceil(inventoryData.length / REPORT_TABLE_PAGE_SIZE));
+  const yieldTotalPages = Math.max(1, Math.ceil(yieldData.length / REPORT_TABLE_PAGE_SIZE));
+  const batchTotalPages = Math.max(1, Math.ceil(batchRows.length / REPORT_TABLE_PAGE_SIZE));
+  const agedTotalPages = Math.max(1, Math.ceil(capitalIntelligence.agedBatches.length / REPORT_TABLE_PAGE_SIZE));
+
+  useEffect(() => {
+    setPageInventory(p => Math.min(p, invTotalPages));
+  }, [invTotalPages]);
+
+  useEffect(() => {
+    setPageYield(p => Math.min(p, yieldTotalPages));
+  }, [yieldTotalPages]);
+
+  useEffect(() => {
+    setPageBatch(p => Math.min(p, batchTotalPages));
+  }, [batchTotalPages]);
+
+  useEffect(() => {
+    setPageAgedBatches(p => Math.min(p, agedTotalPages));
+  }, [agedTotalPages]);
+
+  useEffect(() => {
+    setPageBatch(1);
+  }, [selectedBatchName]);
+
+  const paginatedInventory = useMemo(() => {
+    const start = (pageInventory - 1) * REPORT_TABLE_PAGE_SIZE;
+    return inventoryData.slice(start, start + REPORT_TABLE_PAGE_SIZE);
+  }, [inventoryData, pageInventory]);
+
+  const paginatedYield = useMemo(() => {
+    const start = (pageYield - 1) * REPORT_TABLE_PAGE_SIZE;
+    return yieldData.slice(start, start + REPORT_TABLE_PAGE_SIZE);
+  }, [yieldData, pageYield]);
+
+  const paginatedBatchRows = useMemo(() => {
+    const start = (pageBatch - 1) * REPORT_TABLE_PAGE_SIZE;
+    return batchRows.slice(start, start + REPORT_TABLE_PAGE_SIZE);
+  }, [batchRows, pageBatch]);
+
+  const paginatedAgedBatches = useMemo(() => {
+    const start = (pageAgedBatches - 1) * REPORT_TABLE_PAGE_SIZE;
+    return capitalIntelligence.agedBatches.slice(start, start + REPORT_TABLE_PAGE_SIZE);
+  }, [capitalIntelligence.agedBatches, pageAgedBatches]);
+
+  const invPageList = useMemo(() => buildReportPageList(pageInventory, invTotalPages), [pageInventory, invTotalPages]);
+  const yieldPageList = useMemo(() => buildReportPageList(pageYield, yieldTotalPages), [pageYield, yieldTotalPages]);
+  const batchPageList = useMemo(() => buildReportPageList(pageBatch, batchTotalPages), [pageBatch, batchTotalPages]);
+  const agedPageList = useMemo(() => buildReportPageList(pageAgedBatches, agedTotalPages), [pageAgedBatches, agedTotalPages]);
 
   const triggerDownload = async (fileBlob: Blob, fileName: string) => {
     try {
@@ -1149,7 +1326,7 @@ export const ReportsView = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50 font-medium">
-                                    {batchReportData?.rows.map((row) => (
+                                    {paginatedBatchRows.map((row) => (
                                         <tr key={row.id} className="hover:bg-indigo-50/30 dark:hover:bg-indigo-900/10 transition-all">
                                             <td className="px-8 py-6 text-indigo-500 font-mono text-xs font-bold uppercase tracking-widest">{row.code}</td>
                                             <td className="px-8 py-6 font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter">{row.name}</td>
@@ -1188,7 +1365,7 @@ export const ReportsView = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50 font-medium">
-                                    {yieldData.map((y) => (
+                                    {paginatedYield.map((y) => (
                                         <tr key={y.id} className="hover:bg-indigo-50/30 dark:hover:bg-indigo-900/10 transition-all">
                                             <td className="px-8 py-6 text-indigo-500 font-mono text-xs font-bold uppercase tracking-widest">{y.code}</td>
                                             <td className="px-8 py-6 font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter">{y.name}</td>
@@ -1284,8 +1461,8 @@ export const ReportsView = () => {
                                                                 </tr>
                                                             </thead>
                                                             <tbody className="divide-y divide-rose-50 dark:divide-rose-900/20">
-                                                                {capitalIntelligence.agedBatches.map((b, i) => (
-                                                                    <tr key={i} className="hover:bg-rose-50/50 dark:hover:bg-rose-950/20 transition-colors">
+                                                                {paginatedAgedBatches.map((b, i) => (
+                                                                    <tr key={`${b.perfumeCode}-${b.batch}-${b.location}-${(pageAgedBatches - 1) * REPORT_TABLE_PAGE_SIZE + i}`} className="hover:bg-rose-50/50 dark:hover:bg-rose-950/20 transition-colors">
                                                                         <td className="px-6 py-5">
                                                                             <div className="font-black text-slate-900 dark:text-slate-100 uppercase">{b.perfumeName}</div>
                                                                             <div className="text-[10px] font-mono text-rose-400">{b.perfumeCode}</div>
@@ -1303,6 +1480,13 @@ export const ReportsView = () => {
                                                                 ))}
                                                             </tbody>
                                                         </table>
+                                                        <ReportTablePagination
+                                                          page={pageAgedBatches}
+                                                          setPage={setPageAgedBatches}
+                                                          totalPages={agedTotalPages}
+                                                          totalCount={capitalIntelligence.agedBatches.length}
+                                                          pageList={agedPageList}
+                                                        />
                                                     </div>
                                                 ) : (
                                                     <div className="p-12 text-center flex flex-col items-center justify-center gap-4 bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm animate-in fade-in slide-in-from-bottom-4 duration-500 delay-200">
@@ -1334,7 +1518,7 @@ export const ReportsView = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50 font-medium">
-                                    {inventoryData.map((item) => (
+                                    {paginatedInventory.map((item) => (
                                         <tr 
                                         key={item.id} 
                                         className="hover:bg-indigo-50/30 dark:hover:bg-indigo-900/10 transition-all cursor-pointer group"
@@ -1393,6 +1577,33 @@ export const ReportsView = () => {
                             </tbody>
                         )}
                     </table>
+                    {activeTab === 'inventory' && (
+                      <ReportTablePagination
+                        page={pageInventory}
+                        setPage={setPageInventory}
+                        totalPages={invTotalPages}
+                        totalCount={inventoryData.length}
+                        pageList={invPageList}
+                      />
+                    )}
+                    {activeTab === 'yield' && (
+                      <ReportTablePagination
+                        page={pageYield}
+                        setPage={setPageYield}
+                        totalPages={yieldTotalPages}
+                        totalCount={yieldData.length}
+                        pageList={yieldPageList}
+                      />
+                    )}
+                    {activeTab === 'batch' && selectedBatchName && batchRows.length > 0 && (
+                      <ReportTablePagination
+                        page={pageBatch}
+                        setPage={setPageBatch}
+                        totalPages={batchTotalPages}
+                        totalCount={batchRows.length}
+                        pageList={batchPageList}
+                      />
+                    )}
                 </div>
             </div>
           </div>
